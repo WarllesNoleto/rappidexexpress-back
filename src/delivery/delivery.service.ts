@@ -483,32 +483,53 @@ export class DeliveryService {
     }
   }
 
-  private async sendNotificationsToMotoboys(
-    establishmentName: string,
-    cityId: string,
-  ) {
-    const where: Record<string, unknown> = { type: UserType.MOTOBOY };
+ private async sendNotificationsToMotoboys(
+  establishmentName: string,
+  cityId: string,
+) {
+  console.log('=== INÍCIO NOTIFICAÇÃO DE NOVO PEDIDO ===');
+  console.log('Estabelecimento:', establishmentName);
+  console.log('Cidade do pedido:', cityId);
 
-    if (cityId) {
-      where['cityId'] = cityId;
-    }
+  const where: Record<string, unknown> = {
+    type: UserType.MOTOBOY,
+    isActive: true,
+  };
 
-    const motoboys = await this.userRepository.find({ where });
+  if (cityId) {
+    where['cityId'] = cityId;
+  }
 
-    const motoboysNotificationsIds = motoboys
-      .map((motoboy: UserEntity) => {
-        if (motoboy.notification && motoboy.notification.subscriptionId) {
-          return motoboy.notification.subscriptionId;
-        }
-        return null;
-      })
-      .filter((i) => {
-        return i;
+  console.log('Filtro usado para buscar motoboys:', where);
+
+  const motoboys = await this.userRepository.find({ where });
+
+  console.log('Motoboys encontrados:', motoboys.length);
+
+  const motoboysNotificationsIds = motoboys
+    .map((motoboy: UserEntity) => {
+      console.log('Motoboy:', {
+        id: motoboy.id,
+        name: motoboy.name,
+        cityId: motoboy.cityId,
+        isActive: motoboy.isActive,
+        subscriptionId: motoboy.notification?.subscriptionId ?? null,
       });
 
-    await sendNotificationsFor(
-      motoboysNotificationsIds,
-      `Nova solicitação de entrega no estabelecimento: ${establishmentName}`,
-    );
-  }
+      if (motoboy.notification && motoboy.notification.subscriptionId) {
+        return motoboy.notification.subscriptionId;
+      }
+
+      return null;
+    })
+    .filter((i) => !!i);
+
+  console.log('Subscription IDs encontrados:', motoboysNotificationsIds);
+
+  await sendNotificationsFor(
+    motoboysNotificationsIds,
+    `Nova solicitação de entrega no estabelecimento: ${establishmentName}`,
+  );
+
+  console.log('=== FIM NOTIFICAÇÃO DE NOVO PEDIDO ===');
 }
