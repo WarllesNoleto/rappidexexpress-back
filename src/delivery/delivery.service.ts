@@ -367,7 +367,7 @@ export class DeliveryService {
 
       if (deliveryStatus != StatusDelivery.ONCOURSE) {
         try {
-          this.sendNotificationsToMotoboys(
+          await this.sendNotificationsToMotoboys(
             newDelivery.establishment.name,
             newDelivery.establishment.cityId,
           );
@@ -378,10 +378,14 @@ export class DeliveryService {
         }
       } else {
         try {
-          await sendNotificationsFor(
-            [motoboy.notification.subscriptionId],
-            `Você foi atribuido a uma entrega no estabelecimento: ${establishment.name}`,
-          );
+          const subscriptionId = motoboy?.notification?.subscriptionId;
+
+          if (subscriptionId) {
+            await sendNotificationsFor(
+              [subscriptionId],
+              `Você foi atribuido a uma entrega no estabelecimento: ${establishment.name}`,
+            );
+          }
         } catch (error) {
           newLog.error = `${error}`;
           newLog.status = 'Notificação não enviada devido ao error';

@@ -1,35 +1,45 @@
 import axios from 'axios';
 
-export async function sendNotificationsFor(ids: string[] = [], message: string) {
+export async function sendNotificationsFor(
+  ids: string[] = [],
+  message: string,
+) {
   const privateKey = process.env.ONESIGNAL_PRIVATEKEY;
   const appId = process.env.ONESIGNAL_APP_ID_CLIENT;
 
-  if (!privateKey || !appId || !ids.length) {
+  const cleanedIds = ids.filter(Boolean);
+
+  if (!privateKey || !appId || !cleanedIds.length) {
     return;
   }
 
-  const headers = {
-    Authorization: privateKey,
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-
-  const data = {
-    app_id: appId,
-    include_subscription_ids: ids,
-    data: { foo: 'bar' },
-    headings: { en: 'Rappidex Express' },
-    contents: { en: message },
-  };
-
-  const api = axios.create({
-    baseURL: 'https://onesignal.com/api/v1',
-    headers,
-  });
-
   try {
-    await api.post('/notifications', data);
-  } catch (error) {
-    console.log('Falha ao enviar notificação:', error);
+    await axios.post(
+      'https://api.onesignal.com/notifications?c=push',
+      {
+        app_id: appId,
+        include_subscription_ids: cleanedIds,
+        headings: {
+          en: 'Rappidex Express',
+          pt: 'Rappidex Express',
+        },
+        contents: {
+          en: message,
+          pt: message,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Key ${privateKey.replace(/^Key\s+/i, '')}`,
+          accept: 'application/json',
+          'content-type': 'application/json',
+        },
+      },
+    );
+  } catch (error: any) {
+    console.log(
+      'Falha ao enviar notificação:',
+      error?.response?.data ?? error?.message ?? error,
+    );
   }
 }
