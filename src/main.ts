@@ -17,42 +17,37 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-    const localOrigins = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-  ];
-
-  const envOrigins = (process.env.FRONTEND_URLS || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-
   app.enableCors({
-  origin: (origin, callback) => {
-    const localOrigins = [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-    ];
+    origin: (origin, callback) => {
+      const localOrigins = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+      ];
 
-    const envOrigins = (process.env.FRONTEND_URLS || '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
+      const envOrigins = (process.env.FRONTEND_URLS || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
 
-    const isVercelPreview = origin
-      ? /^https:\/\/.*\.vercel\.app$/.test(origin)
-      : false;
+      const isVercelPreview = origin
+        ? /^https:\/\/.*\.vercel\.app$/.test(origin)
+        : false;
 
-    if (!origin || localOrigins.includes(origin) || envOrigins.includes(origin) || isVercelPreview) {
-      return callback(null, true);
-    }
+      if (
+        !origin ||
+        localOrigins.includes(origin) ||
+        envOrigins.includes(origin) ||
+        isVercelPreview
+      ) {
+        return callback(null, true);
+      }
 
-    return callback(new Error(`Origin não permitida: ${origin}`), false);
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-});
+      return callback(new Error(`Origin não permitida: ${origin}`), false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
 
   setupGlobalPipes(app);
   setupSwaggerModule(app, configService);
