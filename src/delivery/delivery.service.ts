@@ -472,7 +472,7 @@ export class DeliveryService {
     };
   }
 
-  private ensureCityAccess(user: UserEntity, resourceCityId: string) {
+    private ensureCityAccess(user: UserEntity, resourceCityId: string) {
     if (
       user.type !== UserType.SUPERADMIN &&
       user.cityId !== resourceCityId
@@ -483,53 +483,54 @@ export class DeliveryService {
     }
   }
 
- private async sendNotificationsToMotoboys(
-  establishmentName: string,
-  cityId: string,
-) {
-  console.log('=== INÍCIO NOTIFICAÇÃO DE NOVO PEDIDO ===');
-  console.log('Estabelecimento:', establishmentName);
-  console.log('Cidade do pedido:', cityId);
+  private async sendNotificationsToMotoboys(
+    establishmentName: string,
+    cityId: string,
+  ) {
+    console.log('=== INÍCIO NOTIFICAÇÃO DE NOVO PEDIDO ===');
+    console.log('Estabelecimento:', establishmentName);
+    console.log('Cidade do pedido:', cityId);
 
-  const where: Record<string, unknown> = {
-    type: UserType.MOTOBOY,
-    isActive: true,
-  };
+    const where: Record<string, unknown> = {
+      type: UserType.MOTOBOY,
+      isActive: true,
+    };
 
-  if (cityId) {
-    where['cityId'] = cityId;
+    if (cityId) {
+      where['cityId'] = cityId;
+    }
+
+    console.log('Filtro usado para buscar motoboys:', where);
+
+    const motoboys = await this.userRepository.find({ where });
+
+    console.log('Motoboys encontrados:', motoboys.length);
+
+    const motoboysNotificationsIds = motoboys
+      .map((motoboy: UserEntity) => {
+        console.log('Motoboy:', {
+          id: motoboy.id,
+          name: motoboy.name,
+          cityId: motoboy.cityId,
+          isActive: motoboy.isActive,
+          subscriptionId: motoboy.notification?.subscriptionId ?? null,
+        });
+
+        if (motoboy.notification && motoboy.notification.subscriptionId) {
+          return motoboy.notification.subscriptionId;
+        }
+
+        return null;
+      })
+      .filter((i) => !!i);
+
+    console.log('Subscription IDs encontrados:', motoboysNotificationsIds);
+
+    await sendNotificationsFor(
+      motoboysNotificationsIds,
+      `Nova solicitação de entrega no estabelecimento: ${establishmentName}`,
+    );
+
+    console.log('=== FIM NOTIFICAÇÃO DE NOVO PEDIDO ===');
   }
-
-  console.log('Filtro usado para buscar motoboys:', where);
-
-  const motoboys = await this.userRepository.find({ where });
-
-  console.log('Motoboys encontrados:', motoboys.length);
-
-  const motoboysNotificationsIds = motoboys
-    .map((motoboy: UserEntity) => {
-      console.log('Motoboy:', {
-        id: motoboy.id,
-        name: motoboy.name,
-        cityId: motoboy.cityId,
-        isActive: motoboy.isActive,
-        subscriptionId: motoboy.notification?.subscriptionId ?? null,
-      });
-
-      if (motoboy.notification && motoboy.notification.subscriptionId) {
-        return motoboy.notification.subscriptionId;
-      }
-
-      return null;
-    })
-    .filter((i) => !!i);
-
-  console.log('Subscription IDs encontrados:', motoboysNotificationsIds);
-
-  await sendNotificationsFor(
-    motoboysNotificationsIds,
-    `Nova solicitação de entrega no estabelecimento: ${establishmentName}`,
-  );
-
-  console.log('=== FIM NOTIFICAÇÃO DE NOVO PEDIDO ===');
 }
