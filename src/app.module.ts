@@ -7,6 +7,7 @@ import { UserModule } from './user/user.module';
 import { AuthenticatorModule } from './authenticator/authenticator.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { CityModule } from './city/city.module';
+import { IfoodModule } from './ifood/ifood.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { CityModule } from './city/city.module';
     AuthenticatorModule,
     DeliveryModule,
     CityModule,
+    IfoodModule,
   ],
   controllers: [AppController],
   providers: [AppService],

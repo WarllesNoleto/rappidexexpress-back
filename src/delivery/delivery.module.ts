@@ -9,6 +9,6 @@ import { OrdersGateway } from '../gateway/orders.gateway';
   imports: [TypeOrmModule.forFeature([UserEntity, DeliveryEntity, LogEntity])],
   controllers: [DeliveryController],
   providers: [DeliveryService, OrdersGateway],
-  exports: [OrdersGateway],
+  exports: [DeliveryService, OrdersGateway],
 })
 export class DeliveryModule {}
