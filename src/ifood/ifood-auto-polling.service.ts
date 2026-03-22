@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { IfoodEventService } from './ifood-event.service';
 import { IfoodImportService } from './ifood-import.service';
 import { IfoodPollingService } from './ifood-polling.service';
 
@@ -19,6 +20,7 @@ export class IfoodAutoPollingService
     private readonly configService: ConfigService,
     private readonly ifoodPollingService: IfoodPollingService,
     private readonly ifoodImportService: IfoodImportService,
+    private readonly ifoodEventService: IfoodEventService,
   ) {}
 
   async onModuleInit() {
@@ -55,13 +57,57 @@ export class IfoodAutoPollingService
   private async runPollingCycle() {
     try {
       const events = await this.ifoodPollingService.pollEvents();
-      const totalEvents = Array.isArray(events) ? events.length : 0;
+      const allEvents = Array.isArray(events) ? events : [];
 
       this.logger.log(
-        `Polling executado com sucesso. Eventos encontrados: ${totalEvents}`,
+        `Polling executado com sucesso. Eventos encontrados: ${allEvents.length}`,
       );
 
-      await this.ifoodImportService.importFromEvents(events);
+      const freshEvents: any[] = [];
+
+      for (const event of allEvents) {
+        if (!event?.id) {
+          continue;
+        }
+
+        const existingEvent = await this.ifoodEventService.findByEventId(
+          event.id,
+        );
+
+        if (existingEvent) {
+          continue;
+        }
+
+        freshEvents.push(event);
+      }
+
+      this.logger.log(
+        `Eventos novos para processar neste ciclo: ${freshEvents.length}`,
+      );
+
+      if (freshEvents.length === 0) {
+        return;
+      }
+
+      await this.ifoodImportService.importFromEvents(freshEvents);
+
+      for (const event of freshEvents) {
+        await this.ifoodEventService.markAsProcessed(event);
+      }
+
+      const eventIds = freshEvents
+        .map((event) => event?.id)
+        .filter(Boolean);
+
+      await this.ifoodPollingService.acknowledgeEvents(eventIds);
+
+      for (const eventId of eventIds) {
+        await this.ifoodEventService.markAsAcknowledged(eventId);
+      }
+
+      this.logger.log(
+        `Eventos processados, ACK enviado ao iFood e confirmados localmente: ${eventIds.length}`,
+      );
     } catch (error: any) {
       this.logger.error(
         `Erro no polling automático do iFood: ${error?.message || error}`,

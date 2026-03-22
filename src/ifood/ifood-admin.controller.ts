@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  ForbiddenException,
   Get,
   Param,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { IfoodAuthService } from './ifood-auth.service';
 import { IfoodOrderLinkService } from './ifood-order-link.service';
 import { IfoodOrdersService } from './ifood-orders.service';
 import { IfoodPollingService } from './ifood-polling.service';
+import { IfoodReadinessService } from './ifood-readiness.service';
 
 @Controller('ifood')
 export class IfoodAdminController {
@@ -20,10 +22,24 @@ export class IfoodAdminController {
     private readonly ifoodOrdersService: IfoodOrdersService,
     private readonly ifoodPollingService: IfoodPollingService,
     private readonly ifoodOrderLinkService: IfoodOrderLinkService,
+    private readonly ifoodReadinessService: IfoodReadinessService,
   ) {}
+
+  private ensureDebugRoutesEnabled() {
+    const enabled =
+      String(this.configService.get('IFOOD_DEBUG_ROUTES_ENABLED')) === 'true';
+
+    if (!enabled) {
+      throw new ForbiddenException(
+        'As rotas de debug do iFood estão desativadas neste ambiente.',
+      );
+    }
+  }
 
   @Get('token-test')
   async tokenTest() {
+    this.ensureDebugRoutesEnabled();
+
     const accessToken = await this.ifoodAuthService.getAccessToken();
 
     return {
@@ -35,6 +51,8 @@ export class IfoodAdminController {
 
   @Get('order-test/:orderId')
   async orderTest(@Param('orderId') orderId: string) {
+    this.ensureDebugRoutesEnabled();
+
     const order = await this.ifoodOrdersService.getOrderDetails(orderId);
 
     return {
@@ -46,16 +64,22 @@ export class IfoodAdminController {
 
   @Get('order-analyze/:orderId')
   async orderAnalyze(@Param('orderId') orderId: string) {
+    this.ensureDebugRoutesEnabled();
+
     return this.ifoodOrdersService.analyzeOrder(orderId);
   }
 
   @Get('delivery-preview/:orderId')
   async deliveryPreview(@Param('orderId') orderId: string) {
+    this.ensureDebugRoutesEnabled();
+
     return this.ifoodOrdersService.buildDeliveryPreview(orderId);
   }
 
   @Get('polling-test')
   async pollingTest() {
+    this.ensureDebugRoutesEnabled();
+
     const events = await this.ifoodPollingService.pollEvents();
 
     return {
@@ -67,6 +91,8 @@ export class IfoodAdminController {
 
   @Get('polling-test/order/:orderId')
   async pollingTestByOrder(@Param('orderId') orderId: string) {
+    this.ensureDebugRoutesEnabled();
+
     const events = await this.ifoodPollingService.pollEvents();
 
     const filteredEvents = Array.isArray(events)
@@ -84,54 +110,22 @@ export class IfoodAdminController {
 
   @Get('order-readiness/:orderId')
   async orderReadiness(@Param('orderId') orderId: string) {
-    const orderAnalysis = await this.ifoodOrdersService.analyzeOrder(orderId);
-    const events = await this.ifoodPollingService.pollEvents();
+    this.ensureDebugRoutesEnabled();
 
-    const filteredEvents = Array.isArray(events)
-      ? events.filter((event) => event?.orderId === orderId)
-      : [];
+    return this.ifoodReadinessService.getOrderReadiness(orderId);
+  }
 
-    const hasCancelledEvent = filteredEvents.some(
-      (event) =>
-        event?.code === 'CAN' ||
-        event?.fullCode === 'CANCELLED' ||
-        event?.code === 'CAR' ||
-        event?.fullCode === 'CANCELLATION_REQUESTED',
-    );
+  @Get('dispatch-test/:orderId')
+  async dispatchTest(@Param('orderId') orderId: string) {
+    this.ensureDebugRoutesEnabled();
 
-    const latestEvent =
-      filteredEvents.length > 0
-        ? [...filteredEvents].sort(
-            (a, b) =>
-              new Date(b?.createdAt || 0).getTime() -
-              new Date(a?.createdAt || 0).getTime(),
-          )[0]
-        : null;
-
-    const canCreateRappidexDelivery =
-      orderAnalysis?.canCreateRappidexDelivery && !hasCancelledEvent;
-
-    return {
-      success: true,
-      orderId,
-      summary: orderAnalysis.summary,
-      eventSummary: {
-        totalEvents: filteredEvents.length,
-        latestEventCode: latestEvent?.code ?? null,
-        latestEventFullCode: latestEvent?.fullCode ?? null,
-        hasCancelledEvent,
-      },
-      canCreateRappidexDelivery,
-      reason: hasCancelledEvent
-        ? 'Pedido não pode mudar para entrega no Rappidex porque já possui evento de cancelamento.'
-        : canCreateRappidexDelivery
-        ? 'Pedido apto para virar entrega no Rappidex.'
-        : 'Pedido não está apto para virar entrega no Rappidex.',
-    };
+    return this.ifoodOrdersService.dispatchOrder(orderId);
   }
 
   @Get('create-delivery-test/:orderId')
   async createDeliveryTest(@Param('orderId') orderId: string) {
+    this.ensureDebugRoutesEnabled();
+
     const existingLink =
       await this.ifoodOrderLinkService.findByIfoodOrderId(orderId);
 
@@ -141,7 +135,8 @@ export class IfoodAdminController {
       );
     }
 
-    const readiness = await this.orderReadiness(orderId);
+    const readiness =
+      await this.ifoodReadinessService.getOrderReadiness(orderId);
 
     if (!readiness.canCreateRappidexDelivery) {
       throw new BadRequestException(readiness.reason);

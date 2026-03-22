@@ -51,6 +51,44 @@ export class IfoodOrdersService {
     }
   }
 
+  async dispatchOrder(orderId: string) {
+    const accessToken = await this.ifoodAuthService.getAccessToken();
+
+    try {
+      await axios.post(
+        `https://merchant-api.ifood.com.br/order/v1.0/orders/${orderId}/dispatch`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      this.logger.log(`Dispatch enviado ao iFood com sucesso. OrderId: ${orderId}`);
+
+      return {
+        success: true,
+        orderId,
+        message: 'Dispatch enviado ao iFood com sucesso.',
+      };
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+
+      this.logger.error('Erro ao enviar dispatch ao iFood', {
+        status,
+        data,
+        orderId,
+      });
+
+      throw new InternalServerErrorException(
+        'Não foi possível enviar o dispatch do pedido ao iFood.',
+      );
+    }
+  }
+
   async analyzeOrder(orderId: string) {
     const order = await this.getOrderDetails(orderId);
 

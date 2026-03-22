@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DeliveryService } from '../delivery/delivery.service';
 import { IfoodOrderLinkService } from './ifood-order-link.service';
 import { IfoodOrdersService } from './ifood-orders.service';
+import { IfoodReadinessService } from './ifood-readiness.service';
 
 @Injectable()
 export class IfoodImportService {
@@ -13,6 +14,7 @@ export class IfoodImportService {
     private readonly deliveryService: DeliveryService,
     private readonly ifoodOrdersService: IfoodOrdersService,
     private readonly ifoodOrderLinkService: IfoodOrderLinkService,
+    private readonly ifoodReadinessService: IfoodReadinessService,
   ) {}
 
   async importFromEvents(events: any[]) {
@@ -57,30 +59,12 @@ export class IfoodImportService {
           continue;
         }
 
-        const analysis = await this.ifoodOrdersService.analyzeOrder(orderId);
+        const readiness =
+          await this.ifoodReadinessService.getOrderReadiness(orderId);
 
-        if (!analysis?.canCreateRappidexDelivery) {
+        if (!readiness?.canCreateRappidexDelivery) {
           this.logger.warn(
-            `Importação automática: pedido ${orderId} não apto pelo tipo de pedido/entrega.`,
-          );
-          continue;
-        }
-
-        const filteredEvents = events.filter(
-          (event) => event?.orderId === orderId,
-        );
-
-        const hasCancelledEvent = filteredEvents.some(
-          (event) =>
-            event?.code === 'CAN' ||
-            event?.fullCode === 'CANCELLED' ||
-            event?.code === 'CAR' ||
-            event?.fullCode === 'CANCELLATION_REQUESTED',
-        );
-
-        if (hasCancelledEvent) {
-          this.logger.warn(
-            `Importação automática: pedido ${orderId} ignorado porque possui evento de cancelamento.`,
+            `Importação automática: pedido ${orderId} ignorado. Motivo: ${readiness?.reason}`,
           );
           continue;
         }

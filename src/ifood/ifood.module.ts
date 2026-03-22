@@ -1,21 +1,23 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { IfoodOrderLinkEntity } from '../database/entities';
+import { IfoodEventEntity, IfoodOrderLinkEntity } from '../database/entities';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { IfoodAdminController } from './ifood-admin.controller';
 import { IfoodAuthService } from './ifood-auth.service';
 import { IfoodAutoPollingService } from './ifood-auto-polling.service';
+import { IfoodEventService } from './ifood-event.service';
 import { IfoodImportService } from './ifood-import.service';
 import { IfoodOrderLinkService } from './ifood-order-link.service';
 import { IfoodOrdersService } from './ifood-orders.service';
 import { IfoodPollingService } from './ifood-polling.service';
+import { IfoodReadinessService } from './ifood-readiness.service';
 
 @Module({
   imports: [
     ConfigModule,
     DeliveryModule,
-    TypeOrmModule.forFeature([IfoodOrderLinkEntity]),
+    TypeOrmModule.forFeature([IfoodOrderLinkEntity, IfoodEventEntity]),
   ],
   controllers: [IfoodAdminController],
   providers: [
@@ -25,6 +27,8 @@ import { IfoodPollingService } from './ifood-polling.service';
     IfoodOrderLinkService,
     IfoodImportService,
     IfoodAutoPollingService,
+    IfoodReadinessService,
+    IfoodEventService,
   ],
   exports: [
     IfoodAuthService,
@@ -32,6 +36,8 @@ import { IfoodPollingService } from './ifood-polling.service';
     IfoodPollingService,
     IfoodOrderLinkService,
     IfoodImportService,
+    IfoodReadinessService,
+    IfoodEventService,
   ],
 })
 export class IfoodModule {}
