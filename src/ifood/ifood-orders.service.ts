@@ -1,11 +1,13 @@
 import {
-  Injectable,
+  BadRequestException,
   InternalServerErrorException,
+  Injectable,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { CreateDeliveryDto } from '../delivery/dto';
+import { UserEntity } from '../database/entities';
 import {
   PaymentType,
   StatusDelivery,
@@ -51,7 +53,7 @@ export class IfoodOrdersService {
     }
   }
 
-  async dispatchOrder(orderId: string) {
+   async dispatchOrder(orderId: string) {
     const accessToken = await this.ifoodAuthService.getAccessToken();
 
     try {
@@ -66,18 +68,18 @@ export class IfoodOrdersService {
         },
       );
 
-      this.logger.log(`Dispatch enviado ao iFood com sucesso. OrderId: ${orderId}`);
+      this.logger.log(`Dispatch do pedido enviado ao iFood com sucesso. OrderId: ${orderId}`);
 
       return {
         success: true,
         orderId,
-        message: 'Dispatch enviado ao iFood com sucesso.',
+        message: 'Dispatch do pedido enviado ao iFood com sucesso.',
       };
     } catch (error: any) {
       const status = error?.response?.status;
       const data = error?.response?.data;
 
-      this.logger.error('Erro ao enviar dispatch ao iFood', {
+      this.logger.error('Erro ao enviar dispatch do pedido ao iFood', {
         status,
         data,
         orderId,
@@ -88,6 +90,128 @@ export class IfoodOrdersService {
       );
     }
   }
+
+    async assignDriver(orderId: string, motoboy: Partial<UserEntity>) {
+    const accessToken = await this.ifoodAuthService.getAccessToken();
+
+    try {
+      await axios.post(
+        `https://merchant-api.ifood.com.br/logistics/v1.0/orders/${orderId}/assignDriver`,
+        {
+          workerName: motoboy?.name || 'Motoboy Rappidex',
+          workerPhone: this.normalizePhone(motoboy?.phone || ''),
+          workerVehicleType: 'MOTORCYCLE',
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      this.logger.log(`Entregador vinculado ao pedido no iFood. OrderId: ${orderId}`);
+
+      return { success: true, orderId };
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+
+      this.logger.error('Erro ao vincular entregador no iFood', {
+        status,
+        data,
+        orderId,
+        motoboyId: motoboy?.id,
+      });
+
+      throw new InternalServerErrorException(
+        'Não foi possível vincular o entregador ao pedido no iFood.',
+      );
+    }
+  }
+
+  async notifyGoingToOrigin(orderId: string) {
+    return this.postLogisticsWithoutBody(
+      orderId,
+      'goingToOrigin',
+      'deslocamento para coleta',
+    );
+  }
+
+  async notifyArrivedAtOrigin(orderId: string) {
+    return this.postLogisticsWithoutBody(
+      orderId,
+      'arrivedAtOrigin',
+      'chegada na origem',
+    );
+  }
+
+  async dispatchLogisticsOrder(orderId: string) {
+    return this.postLogisticsWithoutBody(
+      orderId,
+      'dispatch',
+      'saída para entrega',
+    );
+  }
+
+  async notifyArrivedAtDestination(orderId: string) {
+    return this.postLogisticsWithoutBody(
+      orderId,
+      'arrivedAtDestination',
+      'chegada no destino',
+    );
+  }
+
+  async verifyDeliveryCode(orderId: string, code: string) {
+  const accessToken = await this.ifoodAuthService.getAccessToken();
+  const normalizedCode = String(code || '').trim();
+
+  if (!normalizedCode) {
+    throw new BadRequestException(
+      'Informe o código de entrega do iFood.',
+    );
+  }
+
+  try {
+    const response = await axios.post(
+      `https://merchant-api.ifood.com.br/logistics/v1.0/orders/${orderId}/verifyDeliveryCode`,
+      {
+        code: normalizedCode,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    this.logger.log(`Código de entrega verificado no iFood. OrderId: ${orderId}`);
+
+    return response.data;
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const description = data?.description || data?.error?.message || '';
+
+    this.logger.error('Erro ao validar código de entrega no iFood', {
+      status,
+      data,
+      orderId,
+    });
+
+    if (
+      status === 400 &&
+      String(description).toLowerCase().includes('invalid')
+    ) {
+      throw new BadRequestException('Código de entrega do iFood inválido.');
+    }
+
+    throw new InternalServerErrorException(
+      'Não foi possível validar o código de entrega no iFood.',
+    );
+  }
+}
 
   async analyzeOrder(orderId: string) {
     const order = await this.getOrderDetails(orderId);
@@ -153,7 +277,8 @@ export class IfoodOrdersService {
     const customerPhone = this.normalizePhone(
       order?.customer?.phone?.number ?? '',
     );
-    const displayId = order?.displayId ?? orderId;
+        const displayId = order?.displayId ?? orderId;
+    const localizer = order?.customer?.phone?.localizer ?? null;
 
     const totalValue =
       order?.total?.orderAmount ??
@@ -170,9 +295,10 @@ export class IfoodOrdersService {
       .filter(Boolean)
       .join(', ');
 
-    const observation = [
+        const observation = [
       `Pedido iFood #${displayId}`,
       deliveryAddress ? `Endereço: ${deliveryAddress}` : null,
+      localizer ? `Localizador: ${localizer}` : null,
       order?.delivery?.observations
         ? `Obs entrega: ${order.delivery.observations}`
         : null,
@@ -193,6 +319,46 @@ export class IfoodOrdersService {
       soda: 'NÃO',
       observation,
     };
+  }
+
+    private async postLogisticsWithoutBody(
+    orderId: string,
+    endpoint: string,
+    actionLabel: string,
+  ) {
+    const accessToken = await this.ifoodAuthService.getAccessToken();
+
+    try {
+      await axios.post(
+        `https://merchant-api.ifood.com.br/logistics/v1.0/orders/${orderId}/${endpoint}`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      this.logger.log(
+        `${actionLabel} enviada ao iFood com sucesso. OrderId: ${orderId}`,
+      );
+
+      return { success: true, orderId };
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+
+      this.logger.error(`Erro ao enviar ${actionLabel} ao iFood`, {
+        status,
+        data,
+        orderId,
+      });
+
+      throw new InternalServerErrorException(
+        `Não foi possível enviar ${actionLabel} ao iFood.`,
+      );
+    }
   }
 
   private normalizePhone(phone: string): string {

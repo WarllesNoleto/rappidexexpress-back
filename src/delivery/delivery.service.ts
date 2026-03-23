@@ -1,6 +1,10 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { DeliveryEntity, LogEntity, UserEntity } from '../database/entities';
@@ -19,11 +23,14 @@ import {
 } from './dto';
 import { UserRequest } from '../shared/interfaces';
 import { StatusDelivery, UserType } from '../shared/constants/enums.constants';
+import { IfoodOrderLinkService } from '../ifood/ifood-order-link.service';
+import { IfoodOrdersService } from '../ifood/ifood-orders.service';
 import { sendNotificationsFor } from 'src/shared/utils/notification.functions';
 import { OrdersGateway } from '../gateway/orders.gateway';
 
 @Injectable()
 export class DeliveryService {
+  private readonly logger = new Logger(DeliveryService.name);
   motoboysDeliveriesAmount = 2;
   blockDeliverys = false;
     constructor(
@@ -34,12 +41,97 @@ export class DeliveryService {
   @InjectRepository(LogEntity)
   private readonly logRepository: MongoRepository<LogEntity>,
   private readonly ordersGateway: OrdersGateway,
+  @Inject(forwardRef(() => IfoodOrdersService))
+  private readonly ifoodOrdersService: IfoodOrdersService,
+  @Inject(forwardRef(() => IfoodOrderLinkService))
+  private readonly ifoodOrderLinkService: IfoodOrderLinkService,
 ) {}
+
+  private async syncIfoodIfNeeded(
+    previousDelivery: DeliveryEntity,
+    nextDelivery: DeliveryEntity,
+    deliveryData: UpdateDeliveryDto,
+  ) {
+    if (!deliveryData.status) {
+      return;
+    }
+
+    const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
+      previousDelivery.id,
+    );
+
+    if (!ifoodLink) {
+      return;
+    }
+
+    const orderId = ifoodLink.ifoodOrderId;
+
+    try {
+      if (deliveryData.status === StatusDelivery.ONCOURSE) {
+        const motoboy = nextDelivery?.motoboy;
+
+        if (!motoboy) {
+          throw new BadRequestException(
+            'Motoboy não encontrado para sincronizar a saída ao iFood.',
+          );
+        }
+
+        await this.ifoodOrdersService.assignDriver(orderId, motoboy);
+        await this.ifoodOrdersService.notifyGoingToOrigin(orderId);
+        return;
+      }
+
+      if (deliveryData.status === StatusDelivery.COLLECTED) {
+        await this.ifoodOrdersService.notifyArrivedAtOrigin(orderId);
+        await this.ifoodOrdersService.dispatchLogisticsOrder(orderId);
+        await this.ifoodOrdersService.dispatchOrder(orderId);
+        return;
+      }
+
+      if (deliveryData.status === StatusDelivery.FINISHED) {
+        await this.ifoodOrdersService.notifyArrivedAtDestination(orderId);
+
+        if (!deliveryData.deliveryCode) {
+          throw new BadRequestException(
+            'Informe o código de entrega do iFood para finalizar este pedido.',
+          );
+        }
+
+        const verifyResult = await this.ifoodOrdersService.verifyDeliveryCode(
+          orderId,
+          deliveryData.deliveryCode,
+        );
+
+        if (verifyResult?.success === false) {
+          throw new BadRequestException(
+            'O código de entrega do iFood é inválido.',
+          );
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(
+        `Falha ao sincronizar delivery ${previousDelivery.id} com o iFood.`,
+        error?.stack || error,
+      );
+
+      if (
+        error instanceof BadRequestException ||
+        error instanceof InternalServerErrorException
+      ) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        'Não foi possível sincronizar o status da entrega com o iFood.',
+      );
+    }
+  }
 
   async listDeliveries(
     user: UserRequest,
     queryParams: ListDeliveriesQueryDTO,
   ): Promise<ListDeliverysResult> {
+    
     const userForRequest = await this.findOneUserById(user.id);
 
     const skip = (queryParams.page - 1) * queryParams.itemsPerPage;
@@ -248,6 +340,18 @@ export class DeliveryService {
       }
     }
 
+        const deliveryForSync = {
+      ...changedDelivery,
+      motoboy: motoboyFinded || changedDelivery['motoboy'],
+      establishment: establishmentFinded || changedDelivery['establishment'],
+    };
+
+    await this.syncIfoodIfNeeded(
+      deliveryFinded,
+      deliveryForSync as DeliveryEntity,
+      deliveryData,
+    );
+
        let deliveryUpdated;
     try {
       deliveryUpdated = await this.deliveryRepository.save({
@@ -265,20 +369,26 @@ export class DeliveryService {
       deliveryFinded.establishment.notification &&
       deliveryFinded.establishment.notification.subscriptionId
     ) {
-      if (
-        deliveryData.status &&
-        deliveryData.status === StatusDelivery.ONCOURSE
-      ) {
-        await sendNotificationsFor(
-          [deliveryFinded.establishment.notification.subscriptionId],
-          `O motoboy ${motoboyFinded.name} aceitou a entrega do pedido do(a) ${deliveryFinded.clientName} e está a caminho!`,
-        );
-      } else if (deliveryData.status) {
-        await sendNotificationsFor(
-          [deliveryFinded.establishment.notification.subscriptionId],
-          `Houve uma alteração no status da entregada do pedido do(a) ${deliveryFinded.clientName}`,
-        );
-      }
+  if (
+  deliveryData.status &&
+  deliveryData.status === StatusDelivery.ONCOURSE
+) {
+  const motoboyName =
+    motoboyFinded?.name ||
+    changedDelivery['motoboy']?.name ||
+    deliveryFinded.motoboy?.name ||
+    'o motoboy';
+
+  await sendNotificationsFor(
+    [deliveryFinded.establishment.notification.subscriptionId],
+    `O motoboy ${motoboyName} aceitou a entrega do pedido do(a) ${deliveryFinded.clientName} e está a caminho!`,
+  );
+} else if (deliveryData.status) {
+  await sendNotificationsFor(
+    [deliveryFinded.establishment.notification.subscriptionId],
+    `Houve uma alteração no status da entrega do pedido do(a) ${deliveryFinded.clientName}`,
+  );
+}
     }
 
     return DeliveryResult.fromEntity(deliveryUpdated);
@@ -304,11 +414,15 @@ export class DeliveryService {
 
     let deliveryStatus = status;
 
-    if ((this.blockDeliverys && user.type != UserType.ADMIN) || (this.blockDeliverys && user.type != UserType.SUPERADMIN) ) {
-      throw new BadRequestException(
-        'Infelizmente as entregas foram encerradas por hoje.',
-      );
-    }
+   if (
+  this.blockDeliverys &&
+  user.type !== UserType.ADMIN &&
+  user.type !== UserType.SUPERADMIN
+) {
+  throw new BadRequestException(
+    'Infelizmente as entregas foram encerradas por hoje.',
+  );
+}
 
     if (
       (userFinded.type === UserType.ADMIN ||

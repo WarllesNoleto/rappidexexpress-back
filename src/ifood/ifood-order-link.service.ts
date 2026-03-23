@@ -14,6 +14,10 @@ export class IfoodOrderLinkService {
     return this.ifoodOrderLinkRepository.findOneBy({ ifoodOrderId });
   }
 
+  async findByDeliveryId(deliveryId: string) {
+    return this.ifoodOrderLinkRepository.findOneBy({ deliveryId });
+  }
+
   async createLink(data: {
     ifoodOrderId: string;
     ifoodDisplayId: string;

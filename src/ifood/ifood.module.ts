@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { IfoodEventEntity, IfoodOrderLinkEntity } from '../database/entities';
@@ -16,7 +16,7 @@ import { IfoodReadinessService } from './ifood-readiness.service';
 @Module({
   imports: [
     ConfigModule,
-    DeliveryModule,
+    forwardRef(() => DeliveryModule),
     TypeOrmModule.forFeature([IfoodOrderLinkEntity, IfoodEventEntity]),
   ],
   controllers: [IfoodAdminController],

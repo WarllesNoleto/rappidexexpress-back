@@ -37,6 +37,10 @@ export class UpdateDeliveryDto {
   @IsOptional()
   observation?: string;
 
+  @IsString()
+  @IsOptional()
+  deliveryCode?: string;
+
   @IsEnum(PaymentType)
   @IsOptional()
   payment?: PaymentType;
