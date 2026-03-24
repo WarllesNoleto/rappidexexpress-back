@@ -56,43 +56,41 @@ export class IfoodPollingService {
     }
   }
 
-  async acknowledgeEvents(eventIds: string[]) {
-    if (!Array.isArray(eventIds) || eventIds.length === 0) {
-      return;
-    }
-
-    const accessToken = await this.ifoodAuthService.getAccessToken();
-
-    try {
-      await axios.post(
-        'https://merchant-api.ifood.com.br/events/v1.0/events/acknowledgment',
-        {
-          events: eventIds,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      this.logger.log(
-        `ACK enviado ao iFood com sucesso. Eventos: ${eventIds.length}`,
-      );
-    } catch (error: any) {
-      const status = error?.response?.status;
-      const data = error?.response?.data;
-
-      this.logger.error('Erro ao enviar ACK para o iFood', {
-        status,
-        data,
-        eventIds,
-      });
-
-      throw new InternalServerErrorException(
-        'Não foi possível enviar ACK dos eventos ao iFood.',
-      );
-    }
+ async acknowledgeEvents(eventIds: string[]) {
+  if (!Array.isArray(eventIds) || eventIds.length === 0) {
+    return;
   }
+
+  const accessToken = await this.ifoodAuthService.getAccessToken();
+
+  try {
+    await axios.post(
+    'https://merchant-api.ifood.com.br/events/v1.0/events/acknowledgment',
+    eventIds.map((eventId) => ({ id: eventId })),
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+
+    this.logger.log(
+      `ACK enviado ao iFood com sucesso. Eventos: ${eventIds.length}`,
+    );
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+
+    this.logger.error('Erro ao enviar ACK para o iFood', {
+      status,
+      data,
+      eventIds,
+    });
+
+    throw new InternalServerErrorException(
+      'Não foi possível enviar ACK dos eventos ao iFood.',
+    );
+  }
+}
 }

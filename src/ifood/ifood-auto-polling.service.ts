@@ -55,63 +55,75 @@ export class IfoodAutoPollingService
   }
 
   private async runPollingCycle() {
-    try {
-      const events = await this.ifoodPollingService.pollEvents();
-      const allEvents = Array.isArray(events) ? events : [];
+  try {
+    const events = await this.ifoodPollingService.pollEvents();
+    const allEvents = Array.isArray(events) ? events : [];
 
-      this.logger.log(
-        `Polling executado com sucesso. Eventos encontrados: ${allEvents.length}`,
+    this.logger.log(
+      `Polling executado com sucesso. Eventos encontrados: ${allEvents.length}`,
+    );
+
+    const freshEvents: any[] = [];
+    const pendingAckEvents: any[] = [];
+
+    for (const event of allEvents) {
+      if (!event?.id) {
+        continue;
+      }
+
+      const existingEvent = await this.ifoodEventService.findByEventId(
+        event.id,
       );
 
-      const freshEvents: any[] = [];
-
-      for (const event of allEvents) {
-        if (!event?.id) {
-          continue;
-        }
-
-        const existingEvent = await this.ifoodEventService.findByEventId(
-          event.id,
-        );
-
-        if (existingEvent) {
-          continue;
-        }
-
+      if (!existingEvent) {
         freshEvents.push(event);
+        continue;
       }
 
-      this.logger.log(
-        `Eventos novos para processar neste ciclo: ${freshEvents.length}`,
-      );
-
-      if (freshEvents.length === 0) {
-        return;
+      if (!existingEvent.acknowledged) {
+        pendingAckEvents.push(event);
       }
+    }
 
+    this.logger.log(
+      `Eventos novos para processar neste ciclo: ${freshEvents.length}`,
+    );
+
+    this.logger.log(
+      `Eventos pendentes de ACK neste ciclo: ${pendingAckEvents.length}`,
+    );
+
+    if (freshEvents.length > 0) {
       await this.ifoodImportService.importFromEvents(freshEvents);
 
       for (const event of freshEvents) {
         await this.ifoodEventService.markAsProcessed(event);
       }
-
-      const eventIds = freshEvents
-        .map((event) => event?.id)
-        .filter(Boolean);
-
-      await this.ifoodPollingService.acknowledgeEvents(eventIds);
-
-      for (const eventId of eventIds) {
-        await this.ifoodEventService.markAsAcknowledged(eventId);
-      }
-
-      this.logger.log(
-        `Eventos processados, ACK enviado ao iFood e confirmados localmente: ${eventIds.length}`,
-      );
-    } catch (error: any) {
-      this.logger.error(
-        `Erro no polling automático do iFood: ${error?.message || error}`,
-      );
     }
+
+    const ackEvents = [...freshEvents, ...pendingAckEvents];
+
+    const eventIds = [
+      ...new Set(ackEvents.map((event) => event?.id).filter(Boolean)),
+    ];
+
+    if (eventIds.length === 0) {
+      return;
+    }
+
+    await this.ifoodPollingService.acknowledgeEvents(eventIds);
+
+    for (const eventId of eventIds) {
+      await this.ifoodEventService.markAsAcknowledged(eventId);
+    }
+
+    this.logger.log(
+      `ACK enviado ao iFood e confirmado localmente: ${eventIds.length}`,
+    );
+  } catch (error: any) {
+    this.logger.error(
+      `Erro no polling automático do iFood: ${error?.message || error}`,
+    );
   }
+}
 }

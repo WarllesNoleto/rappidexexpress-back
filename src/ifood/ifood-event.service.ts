@@ -14,6 +14,14 @@ export class IfoodEventService {
     return this.ifoodEventRepository.findOneBy({ eventId });
   }
 
+  async findByOrderId(orderId: string) {
+    const events = await this.ifoodEventRepository.find({
+      where: { orderId } as any,
+    });
+
+    return Array.isArray(events) ? events : [];
+  }
+
   async markAsProcessed(event: {
     id: string;
     orderId?: string;

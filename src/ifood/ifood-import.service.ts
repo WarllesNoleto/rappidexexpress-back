@@ -23,17 +23,23 @@ export class IfoodImportService {
       return;
     }
 
-    const placedEvents = events.filter(
-      (event) => event?.code === 'PLC' || event?.fullCode === 'PLACED',
+    const eligibleEvents = events.filter(
+      (event) =>
+        event?.code === 'RTP' ||
+        event?.fullCode === 'READY_TO_PICKUP' ||
+        event?.code === 'DSP' ||
+        event?.fullCode === 'DISPATCHED',
     );
 
-    if (placedEvents.length === 0) {
-      this.logger.log('Importação automática: nenhum evento PLACED encontrado.');
+    if (eligibleEvents.length === 0) {
+      this.logger.log(
+        'Importação automática: nenhum evento elegível encontrado. Códigos monitorados: RTP, DSP',
+      );
       return;
     }
 
     const uniqueOrderIds = [
-      ...new Set(placedEvents.map((e) => e?.orderId).filter(Boolean)),
+      ...new Set(eligibleEvents.map((event) => event?.orderId).filter(Boolean)),
     ];
 
     const targetShopkeeperId = this.configService.get<string>(
@@ -59,8 +65,14 @@ export class IfoodImportService {
           continue;
         }
 
-        const readiness =
-          await this.ifoodReadinessService.getOrderReadiness(orderId);
+        const orderEvents = eligibleEvents.filter(
+          (event) => event?.orderId === orderId,
+        );
+
+        const readiness = await this.ifoodReadinessService.getOrderReadiness(
+          orderId,
+          orderEvents,
+        );
 
         if (!readiness?.canCreateRappidexDelivery) {
           this.logger.warn(
@@ -94,7 +106,7 @@ export class IfoodImportService {
         });
 
         this.logger.log(
-          `Importação automática: pedido ${orderId} importado com sucesso. DeliveryId ${createdDelivery.id}`,
+          `Importação automática: pedido ${orderId} importado com sucesso após evento RTP/DSP. DeliveryId ${createdDelivery.id}`,
         );
       } catch (error: any) {
         this.logger.error(
