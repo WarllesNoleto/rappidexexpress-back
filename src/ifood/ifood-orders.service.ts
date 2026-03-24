@@ -213,6 +213,182 @@ export class IfoodOrdersService {
   }
 }
 
+async getCancellationReasons(orderId: string) {
+  const accessToken = await this.ifoodAuthService.getAccessToken();
+
+  try {
+    const response = await axios.get(
+      `https://merchant-api.ifood.com.br/order/v1.0/orders/${orderId}/cancellationReasons`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        validateStatus: (status) => status === 200 || status === 204,
+      },
+    );
+
+    if (response.status === 204) {
+      this.logger.warn(
+        `Pedido ${orderId} sem políticas de cancelamento ativas no iFood.`,
+      );
+      return [];
+    }
+
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+
+    this.logger.error('Erro ao consultar motivos de cancelamento no iFood', {
+      status,
+      data,
+      orderId,
+    });
+
+    throw new InternalServerErrorException(
+      'Não foi possível consultar os motivos de cancelamento no iFood.',
+    );
+  }
+}
+
+async requestCancellation(
+  orderId: string,
+  reason = 'Cancelado no Rappidex.',
+) {
+  const reasons = await this.getCancellationReasons(orderId);
+
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    return {
+      success: false,
+      accepted: false,
+      orderId,
+      message: 'Pedido sem políticas de cancelamento ativas no iFood.',
+    };
+  }
+
+  const preferredCode = this.configService.get<string>(
+    'IFOOD_DEFAULT_CANCELLATION_CODE',
+  );
+
+  const selectedReason = this.pickCancellationReason(reasons, preferredCode);
+
+  if (!selectedReason) {
+    return {
+      success: false,
+      accepted: false,
+      orderId,
+      message: 'Nenhum motivo de cancelamento válido foi encontrado.',
+    };
+  }
+
+  const accessToken = await this.ifoodAuthService.getAccessToken();
+
+  try {
+    await axios.post(
+      `https://merchant-api.ifood.com.br/order/v1.0/orders/${orderId}/requestCancellation`,
+      {
+        reason,
+        cancellationCode: selectedReason.rawCode,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    this.logger.warn(
+      `Solicitação de cancelamento enviada ao iFood. OrderId: ${orderId}. Código: ${selectedReason.code}`,
+    );
+
+    return {
+      success: true,
+      accepted: true,
+      orderId,
+      cancellationCode: selectedReason.code,
+      message: 'Solicitação de cancelamento enviada ao iFood.',
+    };
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const responseCode = data?.code || data?.error?.code || '';
+    const responseMessage = data?.message || data?.error?.message || '';
+
+    this.logger.error('Erro ao solicitar cancelamento do pedido no iFood', {
+      status,
+      data,
+      orderId,
+    });
+
+    if (
+      status === 400 &&
+      (
+        responseCode === 'OrderHasACancellationInProgress' ||
+        responseCode === 'OrderExceededCancellationDeadline' ||
+        String(responseMessage).toLowerCase().includes('already cancelled')
+      )
+    ) {
+      return {
+        success: false,
+        accepted: false,
+        orderId,
+        message: responseMessage || responseCode || 'Cancelamento não aceito pelo iFood.',
+      };
+    }
+
+    throw new InternalServerErrorException(
+      'Não foi possível solicitar o cancelamento do pedido ao iFood.',
+    );
+  }
+}
+
+private pickCancellationReason(reasons: any[], preferredCode?: string) {
+  const normalizedReasons = reasons
+    .map((item) => {
+      const rawCode = item?.code ?? item?.cancelCodeId ?? item?.id ?? null;
+
+      if (!rawCode) {
+        return null;
+      }
+
+      return {
+        rawCode,
+        code: String(rawCode),
+        description: item?.description ?? item?.reason ?? '',
+      };
+    })
+    .filter(Boolean) as Array<{
+      rawCode: string | number;
+      code: string;
+      description: string;
+    }>;
+
+  if (normalizedReasons.length === 0) {
+    return null;
+  }
+
+  const defaultCode = String(preferredCode || '').trim();
+
+  if (defaultCode) {
+    const foundPreferred = normalizedReasons.find(
+      (item) => item.code === defaultCode,
+    );
+
+    if (foundPreferred) {
+      return foundPreferred;
+    }
+  }
+
+  const found504 = normalizedReasons.find((item) => item.code === '504');
+
+  if (found504) {
+    return found504;
+  }
+
+  return normalizedReasons[0];
+}
+
   async analyzeOrder(orderId: string) {
     const order = await this.getOrderDetails(orderId);
 

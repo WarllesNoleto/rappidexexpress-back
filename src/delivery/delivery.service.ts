@@ -53,8 +53,12 @@ export class DeliveryService {
     deliveryData: UpdateDeliveryDto,
   ) {
     if (!deliveryData.status) {
-      return;
-    }
+  return;
+}
+
+if (previousDelivery.status === deliveryData.status) {
+  return;
+}
 
     const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
       previousDelivery.id,
@@ -88,26 +92,34 @@ export class DeliveryService {
         return;
       }
 
-      if (deliveryData.status === StatusDelivery.FINISHED) {
-        await this.ifoodOrdersService.notifyArrivedAtDestination(orderId);
+      if (deliveryData.status === StatusDelivery.CANCELED) {
+  await this.ifoodOrdersService.requestCancellation(
+    orderId,
+    'Cancelado no Rappidex pela alteração do status da entrega.',
+  );
+  return;
+}
 
-        if (!deliveryData.deliveryCode) {
-          throw new BadRequestException(
-            'Informe o código de entrega do iFood para finalizar este pedido.',
-          );
-        }
+if (deliveryData.status === StatusDelivery.FINISHED) {
+  await this.ifoodOrdersService.notifyArrivedAtDestination(orderId);
 
-        const verifyResult = await this.ifoodOrdersService.verifyDeliveryCode(
-          orderId,
-          deliveryData.deliveryCode,
-        );
+  if (!deliveryData.deliveryCode) {
+    throw new BadRequestException(
+      'Informe o código de entrega do iFood para finalizar este pedido.',
+    );
+  }
 
-        if (verifyResult?.success === false) {
-          throw new BadRequestException(
-            'O código de entrega do iFood é inválido.',
-          );
-        }
-      }
+  const verifyResult = await this.ifoodOrdersService.verifyDeliveryCode(
+    orderId,
+    deliveryData.deliveryCode,
+  );
+
+  if (verifyResult?.success === false) {
+    throw new BadRequestException(
+      'O código de entrega do iFood é inválido.',
+    );
+  }
+}
     } catch (error: any) {
       this.logger.error(
         `Falha ao sincronizar delivery ${previousDelivery.id} com o iFood.`,
@@ -538,9 +550,21 @@ export class DeliveryService {
     throw new BadRequestException('Você não é o dono dessa entrega.');
   }
 
+  const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
+    deliveryFinded.id,
+  );
+
+  if (ifoodLink) {
+    await this.ifoodOrdersService.requestCancellation(
+      ifoodLink.ifoodOrderId,
+      'Cancelado no Rappidex pela exclusão da entrega.',
+    );
+  }
+
   try {
     await this.deliveryRepository.save({
       ...deliveryFinded,
+      status: StatusDelivery.CANCELED,
       isActive: false,
       updatedAt: addHours(new Date(), -3),
     });
@@ -551,6 +575,40 @@ export class DeliveryService {
   }
 
   return { status: 200, message: 'Entrega apagada com sucesso!' };
+}
+
+async cancelDeliveryFromIfood(orderId: string, event?: any) {
+  const ifoodLink = await this.ifoodOrderLinkService.findByIfoodOrderId(
+    orderId,
+  );
+
+  if (!ifoodLink) {
+    return;
+  }
+
+  const deliveryFinded = await this.deliveryRepository.findOne({
+    where: {
+      id: ifoodLink.deliveryId,
+    },
+    relations: { establishment: true },
+  });
+
+  if (!deliveryFinded || !deliveryFinded.isActive) {
+    return;
+  }
+
+  await this.deliveryRepository.save({
+    ...deliveryFinded,
+    status: StatusDelivery.CANCELED,
+    isActive: false,
+    updatedAt: addHours(new Date(), -3),
+  });
+
+  this.ordersGateway.emitDeliveryDeleted(deliveryFinded.id);
+
+  this.logger.warn(
+    `Entrega ${deliveryFinded.id} cancelada no Rappidex por evento ${event?.fullCode || event?.code || 'CANCELLED'} do iFood. OrderId: ${orderId}`,
+  );
 }
 
   async findOneUserById(userId: string) {
