@@ -727,16 +727,35 @@ async cancelDeliveryFromIfood(orderId: string, event?: any) {
     );
 
     if (!claimResult?.modifiedCount) {
-      throw new BadRequestException(
-        'Essa entrega acabou de ser aceita por outro entregador. Atualize a lista.',
-      );
-    }
-
-    const deliveryUpdated = await this.deliveryRepository.findOneByOrFail({
+  const currentDelivery = await this.deliveryRepository.findOne({
+    where: {
       id: deliveryFinded.id,
-    });
+    } as any,
+    relations: {
+      motoboy: true,
+      establishment: true,
+    },
+  });
 
-    return deliveryUpdated;
+  if (
+    currentDelivery?.motoboy?.id &&
+    currentDelivery.motoboy.id !== motoboyFinded.id
+  ) {
+    throw new BadRequestException(
+      'Essa entrega já foi atribuída a outro entregador.',
+    );
+  }
+
+  throw new BadRequestException(
+    'Essa entrega acabou de ser aceita por outro entregador. Atualize a lista.',
+  );
+}
+
+const deliveryUpdated = await this.deliveryRepository.findOneByOrFail({
+  id: deliveryFinded.id,
+});
+
+return deliveryUpdated;
   }
 
     private ensureCityAccess(user: UserEntity, resourceCityId: string) {
