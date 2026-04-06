@@ -37,6 +37,9 @@ export class DeliveryResult {
   establishmentPix: string;
 
   @Expose()
+  establishmentCityId?: string;
+
+  @Expose()
   motoboyId?: string;
 
   @Expose()
@@ -97,6 +100,9 @@ export class DeliveryResult {
           : null,
         establishmentPix: delivery.establishment
           ? delivery.establishment.pix
+          : null,
+        establishmentCityId: delivery.establishment
+          ? delivery.establishment.cityId
           : null,
         onCoursedAt: delivery.onCoursedAt,
         collectedAt: delivery.collectedAt,

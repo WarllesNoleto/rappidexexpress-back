@@ -20,10 +20,11 @@ export class CityService {
       return cities.map(CityResult.fromEntity);
   }
 
-  async createCity(data: CreateCityDto): Promise<CityResult> {
+    async createCity(data: CreateCityDto): Promise<CityResult> {
     const city = await this.cityRepository.save({
       name: data.name,
       state: data.state,
+      clientWhatsappMessage: data.clientWhatsappMessage?.trim() || '',
     });
 
     return CityResult.fromEntity(city);
@@ -54,6 +55,10 @@ export class CityService {
     const updatedCity = await this.cityRepository.save({
       ...city,
       ...data,
+      clientWhatsappMessage:
+        data.clientWhatsappMessage !== undefined
+          ? data.clientWhatsappMessage.trim()
+          : city.clientWhatsappMessage,
     });
 
     return CityResult.fromEntity(updatedCity);

@@ -11,4 +11,7 @@ export class CityEntity {
 
   @Column({ nullable: false })
   state?: string;
+
+  @Column({ nullable: true })
+  clientWhatsappMessage?: string;
 }
