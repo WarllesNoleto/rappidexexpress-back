@@ -260,7 +260,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
     let establishmentFinded;
     let motoboyFinded;
 
-    let changedDelivery = {};
+    let changedDelivery: Record<string, any> = {};
 
     if (userFinded.type === UserType.ADMIN || userFinded.type === UserType.SUPERADMIN) {
       changedDelivery = { ...deliveryFinded, ...deliveryData };
@@ -288,7 +288,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
         deliveryFinded.motoboy.id != userFinded.id
       ) {
         throw new BadRequestException(
-          'Essá entrega ja foi atribuída a outro entregador.',
+          'Essa entrega já foi atribuída a outro entregador.',
         );
       }
 
@@ -352,55 +352,73 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
       }
     }
 
-        const deliveryForSync = {
-      ...changedDelivery,
-      motoboy: motoboyFinded || changedDelivery['motoboy'],
-      establishment: establishmentFinded || changedDelivery['establishment'],
-    };
-
-    await this.syncIfoodIfNeeded(
+            const isPendingClaimAttempt = this.isPendingClaimAttempt(
       deliveryFinded,
-      deliveryForSync as DeliveryEntity,
       deliveryData,
     );
 
-       let deliveryUpdated;
-    try {
-      deliveryUpdated = await this.deliveryRepository.save({
-        ...changedDelivery,
-        updatedAt: addHours(new Date(), -3),
-      });
+    let deliveryUpdated: DeliveryEntity;
 
-      this.ordersGateway.emitDeliveryUpdated(
-        DeliveryResult.fromEntity(deliveryUpdated),
+    if (isPendingClaimAttempt && motoboyFinded) {
+      deliveryUpdated = await this.claimPendingDeliveryAtomically(
+        deliveryFinded,
+        changedDelivery,
+        motoboyFinded,
       );
-    } catch (error) {
-      return error;
+    } else {
+      const deliveryForSync = {
+        ...changedDelivery,
+        motoboy: motoboyFinded || changedDelivery['motoboy'],
+        establishment: establishmentFinded || changedDelivery['establishment'],
+      };
+
+      await this.syncIfoodIfNeeded(
+        deliveryFinded,
+        deliveryForSync as DeliveryEntity,
+        deliveryData,
+      );
+
+      try {
+        deliveryUpdated = await this.deliveryRepository.save(
+          this.buildPersistableDelivery({
+            ...changedDelivery,
+            updatedAt: addHours(new Date(), -3),
+          }),
+        );
+      } catch (error) {
+        return error;
+      }
     }
+
+    this.ordersGateway.emitDeliveryUpdated(
+      DeliveryResult.fromEntity(deliveryUpdated),
+    );
+
     if (
       deliveryFinded.establishment.notification &&
       deliveryFinded.establishment.notification.subscriptionId
     ) {
-  if (
-  deliveryData.status &&
-  deliveryData.status === StatusDelivery.ONCOURSE
-) {
-  const motoboyName =
-    motoboyFinded?.name ||
-    changedDelivery['motoboy']?.name ||
-    deliveryFinded.motoboy?.name ||
-    'o motoboy';
+      if (
+        deliveryData.status &&
+        deliveryData.status === StatusDelivery.ONCOURSE
+      ) {
+        const motoboyName =
+          deliveryUpdated.motoboy?.name ||
+          motoboyFinded?.name ||
+          changedDelivery['motoboy']?.name ||
+          deliveryFinded.motoboy?.name ||
+          'o motoboy';
 
-  await sendNotificationsFor(
-    [deliveryFinded.establishment.notification.subscriptionId],
-    `O motoboy ${motoboyName} aceitou a entrega do pedido do(a) ${deliveryFinded.clientName} e está a caminho!`,
-  );
-} else if (deliveryData.status) {
-  await sendNotificationsFor(
-    [deliveryFinded.establishment.notification.subscriptionId],
-    `Houve uma alteração no status da entrega do pedido do(a) ${deliveryFinded.clientName}`,
-  );
-}
+        await sendNotificationsFor(
+          [deliveryFinded.establishment.notification.subscriptionId],
+          `O motoboy ${motoboyName} aceitou a entrega do pedido do(a) ${deliveryFinded.clientName} e está a caminho!`,
+        );
+      } else if (deliveryData.status) {
+        await sendNotificationsFor(
+          [deliveryFinded.establishment.notification.subscriptionId],
+          `Houve uma alteração no status da entrega do pedido do(a) ${deliveryFinded.clientName}`,
+        );
+      }
     }
 
     return DeliveryResult.fromEntity(deliveryUpdated);
@@ -642,6 +660,83 @@ async cancelDeliveryFromIfood(orderId: string, event?: any) {
       status: 200,
       message: 'Configurações foram alterada com sucesso.',
     };
+  }
+
+    private isPendingClaimAttempt(
+    delivery: DeliveryEntity,
+    deliveryData: UpdateDeliveryDto,
+  ) {
+    return (
+      delivery.status === StatusDelivery.PENDING &&
+      deliveryData.status === StatusDelivery.ONCOURSE &&
+      !!deliveryData.motoboyId
+    );
+  }
+
+  private buildPersistableDelivery(data: Record<string, any>) {
+  return {
+    internalId: data.internalId,
+    id: data.id,
+    clientName: data.clientName,
+    clientPhone: data.clientPhone,
+    status: data.status,
+    establishment: data.establishment ?? null,
+    motoboy: data.motoboy ?? null,
+    value: data.value,
+    observation: data.observation,
+    soda: data.soda,
+    payment: data.payment,
+    isActive: data.isActive,
+    createdAt: data.createdAt ?? null,
+    createdBy: data.createdBy ?? null,
+    updatedAt: data.updatedAt ?? null,
+    onCoursedAt: data.onCoursedAt ?? null,
+    collectedAt: data.collectedAt ?? null,
+    finishedAt: data.finishedAt ?? null,
+  };
+}
+
+  private async claimPendingDeliveryAtomically(
+    deliveryFinded: DeliveryEntity,
+    changedDelivery: Record<string, any>,
+    motoboyFinded: UserEntity,
+  ) {
+    const dateForUse = addHours(new Date(), -3);
+
+    const deliveryToPersist = this.buildPersistableDelivery({
+      ...changedDelivery,
+      status: StatusDelivery.ONCOURSE,
+      motoboy: motoboyFinded,
+      onCoursedAt: changedDelivery.onCoursedAt ?? dateForUse,
+      updatedAt: dateForUse,
+    });
+
+    const claimResult = await this.deliveryRepository.updateOne(
+      {
+        id: deliveryFinded.id,
+        isActive: true,
+        status: StatusDelivery.PENDING,
+        $or: [
+          { motoboy: null },
+          { motoboy: { $exists: false } },
+        ],
+      } as any,
+      {
+        $set: deliveryToPersist,
+      } as any,
+    );
+
+    if (!claimResult?.modifiedCount) {
+      throw new BadRequestException(
+        'Essa entrega acabou de ser aceita por outro entregador. Atualize a lista.',
+      );
+    }
+
+    const deliveryUpdated = await this.deliveryRepository.findOneByOrFail({
+      id: deliveryFinded.id,
+    });
+
+    return deliveryUpdated;
   }
 
     private ensureCityAccess(user: UserEntity, resourceCityId: string) {
