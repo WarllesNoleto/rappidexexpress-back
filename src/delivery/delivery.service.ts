@@ -221,7 +221,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
           where,
           skip,
           take,
-          order: { createdAt: 'DESC' },
+          order: { createdAt: 'ASC' },
         });
 
         const deliveriesForCount = await this.deliveryRepository.find({
