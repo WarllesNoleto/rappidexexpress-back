@@ -139,6 +139,87 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
     }
   }
 
+    private buildDeliveryWhere(
+    userForRequest: UserEntity,
+    queryParams: Partial<ListDeliveriesQueryDTO> = {},
+  ) {
+    const where: any = { isActive: true };
+
+    where['establishment.cityId'] = userForRequest.cityId;
+
+    if (
+      userForRequest.type === UserType.ADMIN ||
+      userForRequest.type === UserType.SUPERADMIN
+    ) {
+      if (queryParams.status) {
+        where['status'] = { $in: queryParams.status.split(',') };
+      }
+
+      if (queryParams.establishmentId) {
+        where['establishment.id'] = queryParams.establishmentId;
+      }
+
+      if (queryParams.motoboyId) {
+        where['motoboy.id'] = queryParams.motoboyId;
+      }
+
+      if (queryParams.createdBy) {
+        where['createdBy'] = queryParams.createdBy;
+      }
+    }
+
+    if (userForRequest.type === UserType.MOTOBOY) {
+      if (queryParams.status) {
+        const arrayOnStatus = queryParams.status.split(',');
+        where['status'] = { $in: arrayOnStatus };
+
+        if (!arrayOnStatus.includes(StatusDelivery.PENDING)) {
+          where['motoboy.id'] = userForRequest.id;
+        }
+      } else {
+        where['motoboy.id'] = userForRequest.id;
+      }
+
+      if (queryParams.establishmentId) {
+        where['establishment.id'] = queryParams.establishmentId;
+      }
+    }
+
+    if (
+      userForRequest.type === UserType.SHOPKEEPER ||
+      userForRequest.type === UserType.SHOPKEEPERADMIN
+    ) {
+      where['establishment.id'] = userForRequest.id;
+
+      if (queryParams.status) {
+        where['status'] = { $in: queryParams.status.split(',') };
+      }
+
+      if (queryParams.motoboyId) {
+        where['motoboy.id'] = queryParams.motoboyId;
+      }
+    }
+
+    if (queryParams.createdIn && queryParams.createdUntil) {
+      const createdAtDateFilter = {
+        $gte: new Date(queryParams.createdIn),
+        $lt: new Date(queryParams.createdUntil),
+      };
+
+      const createdAtStringFilter = {
+        $gte: queryParams.createdIn,
+        $lt: queryParams.createdUntil,
+      };
+
+      where['$or'] = [
+        { createdAt: createdAtDateFilter },
+        { createdAt: createdAtStringFilter },
+      ];
+    }
+
+    return where;
+  }
+
   async listDeliveries(
     user: UserRequest,
     queryParams: ListDeliveriesQueryDTO,
@@ -148,72 +229,9 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
 
     const skip = (queryParams.page - 1) * queryParams.itemsPerPage;
     const take = queryParams.itemsPerPage;
-    const where = { isActive: true };
+    const where = this.buildDeliveryWhere(userForRequest, queryParams);
     let deliveries;
     let count;
-
-    where['establishment.cityId'] = userForRequest.cityId;
-
-    if (
-      userForRequest.type === UserType.ADMIN ||
-      userForRequest.type === UserType.SUPERADMIN
-    ) {
-      if (queryParams.status)
-        where['status'] = { $in: queryParams.status.split(',') };
-      if (queryParams.establishmentId)
-        where['establishment.id'] = queryParams.establishmentId;
-      if (queryParams.motoboyId) where['motoboy.id'] = queryParams.motoboyId;
-      if (queryParams.createdBy) where['createdBy'] = queryParams.createdBy;
-    }
-
-    if (userForRequest.type === UserType.MOTOBOY) {
-      if (queryParams.status) {
-        const arrayOnStatus = queryParams.status.split(',');
-        where['status'] = { $in: arrayOnStatus };
-
-        // Se tiver um momento em que for necessario que o motoboy solicite todos os pedidos, ele vai conseguir ver tudo
-        if (!arrayOnStatus.includes(StatusDelivery.PENDING)) {
-          where['motoboy.id'] = userForRequest.id;
-        }
-      } else {
-        where['motoboy.id'] = userForRequest.id;
-      }
-
-      if (queryParams.establishmentId)
-        where['establishment.id'] = queryParams.establishmentId;
-    }
-
-    //Lojistaadmin pode ver o mesmo que o lojista normal, unica diferença é que eles podem atribuir uma entrega ao motoboy
-    if (
-      userForRequest.type === UserType.SHOPKEEPER ||
-      userForRequest.type === UserType.SHOPKEEPERADMIN
-    ) {
-      where['establishment.id'] = userForRequest.id;
-      if (queryParams.status)
-        where['status'] = { $in: queryParams.status.split(',') };
-      if (queryParams.motoboyId) where['motoboy.id'] = queryParams.motoboyId;
-    }
-
-    // if (queryParams.hasOwnProperty('isActive')) {
-    //   where['isActive'] = queryParams.isActive ? true : false;
-    // }
-
-    if (queryParams.createdIn && queryParams.createdUntil) {
-      const createdAtDateFilter = {
-        $gte: new Date(queryParams.createdIn),
-        $lt: new Date(queryParams.createdUntil),
-      };
-      const createdAtStringFilter = {
-        $gte: queryParams.createdIn,
-        $lt: queryParams.createdUntil,
-      };
-
-      // Garante compatibilidade: aceita registros Date (novos) e string (legados).
-      where['$or'] = [
-        { createdAt: createdAtDateFilter },
-        { createdAt: createdAtStringFilter },
-      ];
-    }
 
       try {
         deliveries = await this.deliveryRepository.find({
@@ -224,22 +242,40 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
           order: { createdAt: 'ASC' },
         });
 
-        const deliveriesForCount = await this.deliveryRepository.find({
-          where,
-        });
-
-        count = deliveriesForCount.length;
+        count = await this.deliveryRepository.count(where);
       } catch (error) {
         console.error('Erro ao listar entregas:', error);
         throw error;
       }
 
-    return ListDeliverysResult.fromEntities(
-      deliveries,
-      deliveries.length,
-      queryParams.page,
-      count,
-    );
+      return ListDeliverysResult.fromEntities(
+        deliveries,
+        queryParams.itemsPerPage,
+        queryParams.page,
+        count,
+      );
+  }
+
+    async getDashboardCounts(user: UserRequest) {
+    const userForRequest = await this.findOneUserById(user.id);
+
+    const pendingWhere = this.buildDeliveryWhere(userForRequest, {
+      status: StatusDelivery.PENDING,
+    });
+
+    const assignedWhere = this.buildDeliveryWhere(userForRequest, {
+      status: `${StatusDelivery.ONCOURSE},${StatusDelivery.COLLECTED}`,
+    });
+
+    const [pendingCount, assignedCount] = await Promise.all([
+      this.deliveryRepository.count(pendingWhere),
+      this.deliveryRepository.count(assignedWhere),
+    ]);
+
+    return {
+      pendingCount,
+      assignedCount,
+    };
   }
 
   async updateDelivery(

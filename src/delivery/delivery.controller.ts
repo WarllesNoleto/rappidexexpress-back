@@ -24,6 +24,7 @@ import {
   ConfigsDto,
   CreateDeliveryDto,
   // DeliveryAmountParamsDto,
+  DeliveryDashboardCountsResult,
   DeliveryParamsDto,
   DeliveryResult,
   ListDeliveriesQueryDTO,
@@ -79,6 +80,21 @@ export class DeliveryController {
       data,
       user,
     );
+  }
+
+    @Get('counts')
+  @ApiOperation({
+    operationId: 'GetDashboardCounts',
+    summary: 'Get dashboard delivery counts',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dashboard counters for deliveries.',
+    type: DeliveryDashboardCountsResult,
+  })
+  @UseGuards(JwtAuthGuard)
+  async getDashboardCounts(@User() user: UserRequest) {
+    return await this.deliveryService.getDashboardCounts(user);
   }
 
   @Get()
