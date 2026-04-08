@@ -7,7 +7,6 @@ import {
 import { UserEntity } from './user.entity';
 
 @Entity()
-@Index(['isActive', 'status', 'createdAt'])
 export class DeliveryEntity {
   @ObjectIdColumn()
   internalId: ObjectId;
@@ -22,7 +21,6 @@ export class DeliveryEntity {
   @Column()
   clientPhone: string;
 
-  @Index()
   @Column({ type: 'enum', enum: StatusDelivery })
   status: StatusDelivery;
 
@@ -44,15 +42,12 @@ export class DeliveryEntity {
   @Column({ type: 'enum', enum: PaymentType })
   payment: PaymentType;
 
-  @Index()
   @Column()
   isActive: boolean;
 
-  @Index()
   @Column()
   createdAt: Date;
 
-  @Index()
   @Column({ nullable: true })
   createdBy: string;
 
@@ -65,7 +60,6 @@ export class DeliveryEntity {
   @Column()
   collectedAt: Date;
 
-  @Index()
   @Column()
   finishedAt: Date;
 }
