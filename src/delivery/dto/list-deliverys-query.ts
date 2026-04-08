@@ -31,9 +31,9 @@ export class ListDeliveriesQueryDTO {
 
   @IsNumber()
   @IsOptional()
-  page?: number = 1; 
+  page?: number = 1;
 
   @IsNumber()
   @IsOptional()
-  itemsPerPage?: number = 30;
+  itemsPerPage?: number = 100;
 }

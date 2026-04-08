@@ -8,4 +8,3 @@ export * from './list-deliverys-query';
 
 export * from './delivery-result.dto';
 export * from './list-deliverys-result';
-export * from './delivery-dashboard-counts-result';
