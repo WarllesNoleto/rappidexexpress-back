@@ -215,22 +215,24 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
       ];
     }
 
-        try {
-          deliveries = await this.deliveryRepository.find({
-            relations: { motoboy: true, establishment: true },
-            where,
-            skip,
-            take,
-            order: { createdAt: 'DESC' },
-          });
+      try {
+        deliveries = await this.deliveryRepository.find({
+          relations: { motoboy: true, establishment: true },
+          where,
+          skip,
+          take,
+          order: { createdAt: 'DESC' },
+        });
 
-          count = await this.deliveryRepository.count({
-            where,
-          });
-        } catch (error) {
-          console.error('Erro ao listar entregas:', error);
-          throw error;
-        }
+        const deliveriesForCount = await this.deliveryRepository.find({
+          where,
+        });
+
+        count = deliveriesForCount.length;
+      } catch (error) {
+        console.error('Erro ao listar entregas:', error);
+        throw error;
+      }
 
     return ListDeliverysResult.fromEntities(
       deliveries,
