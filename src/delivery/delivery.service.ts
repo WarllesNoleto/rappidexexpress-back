@@ -215,24 +215,22 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
       ];
     }
 
-       try {
-      deliveries = await this.deliveryRepository.find({
-        relations: { motoboy: true, establishment: true },
-        where,
-        skip,
-        take,
-      });
+        try {
+          deliveries = await this.deliveryRepository.find({
+            relations: { motoboy: true, establishment: true },
+            where,
+            skip,
+            take,
+            order: { createdAt: 'DESC' },
+          });
 
-      deliveries = deliveries.sort(
-        (a, b) =>
-          new Date(b.createdAt as any).getTime() -
-          new Date(a.createdAt as any).getTime(),
-      );
-
-      count = await this.deliveryRepository.count(where);
-    } catch (error) {
-      return error;
-    }
+          count = await this.deliveryRepository.count({
+            where,
+          });
+        } catch (error) {
+          console.error('Erro ao listar entregas:', error);
+          throw error;
+        }
 
     return ListDeliverysResult.fromEntities(
       deliveries,
@@ -392,6 +390,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
 
     this.ordersGateway.emitDeliveryUpdated(
       DeliveryResult.fromEntity(deliveryUpdated),
+      deliveryUpdated.establishment?.cityId ?? deliveryFinded.establishment?.cityId,
     );
 
     if (
@@ -498,6 +497,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
 
       this.ordersGateway.emitDeliveryCreated(
         DeliveryResult.fromEntity(newDelivery),
+        newDelivery.establishment?.cityId,
       );
 
       const newLog = {
@@ -539,7 +539,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
 
       return DeliveryResult.fromEntity(newDelivery);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -587,7 +587,10 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
       updatedAt: addHours(new Date(), -3),
     });
 
-    this.ordersGateway.emitDeliveryDeleted(deliveryFinded.id);
+    this.ordersGateway.emitDeliveryDeleted(
+      deliveryFinded.id,
+      deliveryFinded.establishment?.cityId,
+    );
   } catch (error) {
     return error;
   }
@@ -622,7 +625,10 @@ async cancelDeliveryFromIfood(orderId: string, event?: any) {
     updatedAt: addHours(new Date(), -3),
   });
 
-  this.ordersGateway.emitDeliveryDeleted(deliveryFinded.id);
+    this.ordersGateway.emitDeliveryDeleted(
+      deliveryFinded.id,
+      deliveryFinded.establishment?.cityId,
+    );
 
   this.logger.warn(
     `Entrega ${deliveryFinded.id} cancelada no Rappidex por evento ${event?.fullCode || event?.code || 'CANCELLED'} do iFood. OrderId: ${orderId}`,
