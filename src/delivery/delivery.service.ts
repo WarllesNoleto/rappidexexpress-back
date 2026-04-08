@@ -239,7 +239,7 @@ if (deliveryData.status === StatusDelivery.FINISHED) {
           where,
           skip,
           take,
-          order: { createdAt: 'ASC' },
+          order: { createdAt: 'DESC' },
         });
 
         count = await this.deliveryRepository.count(where);
