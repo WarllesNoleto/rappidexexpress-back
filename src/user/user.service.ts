@@ -78,7 +78,7 @@ export class UserService {
       });
       return UserResult.fromEntity(newUser);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -144,7 +144,7 @@ export class UserService {
     try {
       users = await this.userRepository.find({ where, skip, take, order });
     } catch (error) {
-      return error;
+      throw error;
     }
 
     return ListUsersResult.fromEntities(users, users.length, queryParams.page);
@@ -431,7 +431,7 @@ export class UserService {
         } - ${lastHourByMotoboy[motoboy.id] ?? 'sem ultima entrega'}`,
       }));
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
