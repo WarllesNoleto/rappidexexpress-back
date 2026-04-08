@@ -308,12 +308,29 @@ export class UserService {
     }
   }
 
-  async findMotoboys(
+    private formatFinishedHour(finishedAt?: Date | string) {
+    if (!finishedAt) {
+      return 'sem ultima entrega';
+    }
+
+    const parsedDate = new Date(finishedAt);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return 'sem ultima entrega';
+    }
+
+    const hour = String(parsedDate.getHours()).padStart(2, '0');
+    const minute = String(parsedDate.getMinutes()).padStart(2, '0');
+
+    return `${hour}:${minute} horas`;
+  }
+
+    async findMotoboys(
     requestUser: UserRequest,
   ): Promise<Record<string, string>[]> {
     const requester = await this.findUserOrFail(requestUser.id);
 
-    let where;
+    let where: any;
     const order = {
       name: 'ASC',
     };
@@ -334,6 +351,7 @@ export class UserService {
         cityId: requesterCityId,
       };
     }
+
     try {
       const motoboys = await this.userRepository.find({
         where,
@@ -349,51 +367,69 @@ export class UserService {
                 motoboy.cityId.toString() === requesterCityId?.toString(),
             );
 
-      const motoboysWithDeliveriesCount = await Promise.all(
-        scopedMotoboys.map(async (motoboy) => {
-          const countWhere = {
-            isActive: true,
-            'motoboy.id': motoboy.id,
-            status: {
-              $in: [
-                StatusDelivery.PENDING,
-                StatusDelivery.ONCOURSE,
-                StatusDelivery.COLLECTED,
-              ],
-            },
-          };
+      if (!scopedMotoboys.length) {
+        return [];
+      }
 
-          const lastDeliveryWhere = {
-            'motoboy.id': motoboy.id,
-            status: StatusDelivery.FINISHED,
-          };
-          if (requesterCityId) {
-            countWhere['establishment.cityId'] = requesterCityId;
-            lastDeliveryWhere['establishment.cityId'] = requesterCityId;
-          }
+      const motoboyIds = scopedMotoboys.map((motoboy) => motoboy.id);
 
-          const countDeliveries = await this.deliveryRepository.count(
-            countWhere,
-          );
+      const activeWhere: any = {
+        isActive: true,
+        'motoboy.id': { $in: motoboyIds },
+        status: {
+          $in: [
+            StatusDelivery.PENDING,
+            StatusDelivery.ONCOURSE,
+            StatusDelivery.COLLECTED,
+          ],
+        },
+      };
 
-          const order = { finishedAt: 'DESC' };
-          const take = 1;
+      const finishedWhere: any = {
+        'motoboy.id': { $in: motoboyIds },
+        status: StatusDelivery.FINISHED,
+      };
 
-          const lastDelivery = await this.deliveryRepository.find({
-            where: lastDeliveryWhere,
-            order,
-            take,
-          });
+      if (requesterCityId) {
+        activeWhere['establishment.cityId'] = requesterCityId;
+        finishedWhere['establishment.cityId'] = requesterCityId;
+      }
 
-          return {
-            name: `${motoboy.name} - ${countDeliveries}`,
-            lastDeliveryDate: lastDelivery,
-            id: motoboy.id,
-          };
+      const [activeDeliveries, finishedDeliveries] = await Promise.all([
+        this.deliveryRepository.find({
+          where: activeWhere,
         }),
-      );
+        this.deliveryRepository.find({
+          where: finishedWhere,
+          order: { finishedAt: 'DESC' },
+        }),
+      ]);
 
-      return await this.changeNameForMotoboy(motoboysWithDeliveriesCount);
+      const deliveriesCountByMotoboy: Record<string, number> = {};
+      for (const delivery of activeDeliveries) {
+        const motoboyId = delivery?.motoboy?.id;
+        if (!motoboyId) continue;
+
+        deliveriesCountByMotoboy[motoboyId] =
+          (deliveriesCountByMotoboy[motoboyId] ?? 0) + 1;
+      }
+
+      const lastHourByMotoboy: Record<string, string> = {};
+      for (const delivery of finishedDeliveries) {
+        const motoboyId = delivery?.motoboy?.id;
+        if (!motoboyId || lastHourByMotoboy[motoboyId]) continue;
+
+        lastHourByMotoboy[motoboyId] = this.formatFinishedHour(
+          delivery.finishedAt,
+        );
+      }
+
+      return scopedMotoboys.map((motoboy) => ({
+        id: motoboy.id,
+        name: `${motoboy.name} - ${
+          deliveriesCountByMotoboy[motoboy.id] ?? 0
+        } - ${lastHourByMotoboy[motoboy.id] ?? 'sem ultima entrega'}`,
+      }));
     } catch (error) {
       return error;
     }
