@@ -550,10 +550,14 @@ export class IfoodOrdersService {
     ]
       .filter(Boolean)
       .join(', ');
+    const deliveryLocationLink = this.buildGoogleMapsLinkByAddress(
+      deliveryAddress,
+    );
 
     const observation = [
       `Pedido iFood #${displayId}`,
       deliveryAddress ? `Endereço: ${deliveryAddress}` : null,
+      deliveryLocationLink ? `Localização: ${deliveryLocationLink}` : null,
       localizer ? `Localizador: ${localizer}` : null,
       order?.delivery?.observations
         ? `Obs entrega: ${order.delivery.observations}`
@@ -575,6 +579,16 @@ export class IfoodOrdersService {
       soda: 'NÃO',
       observation,
     };
+  }
+
+  private buildGoogleMapsLinkByAddress(address?: string | null): string | null {
+    const normalizedAddress = String(address || '').trim();
+
+    if (!normalizedAddress) {
+      return null;
+    }
+
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalizedAddress)}`;
   }
   
   async resolveTargetShopkeeperId(
