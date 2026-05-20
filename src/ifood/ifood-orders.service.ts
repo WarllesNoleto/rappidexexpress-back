@@ -550,9 +550,7 @@ export class IfoodOrdersService {
     ]
       .filter(Boolean)
       .join(', ');
-    const deliveryLocationLink = this.buildGoogleMapsLinkByAddress(
-      deliveryAddress,
-    );
+    const deliveryLocationLink = this.buildIfoodDeliveryLocationLink(order);
 
     const observation = [
       `Pedido iFood #${displayId}`,
@@ -572,6 +570,7 @@ export class IfoodOrdersService {
     return {
       clientName: customerName,
       clientPhone: customerPhone,
+      clientLocation: deliveryLocationLink ?? undefined,
       status: StatusDelivery.PENDING,
       establishmentId,
       value: String(totalValue),
@@ -589,6 +588,28 @@ export class IfoodOrdersService {
     }
 
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalizedAddress)}`;
+  }
+
+  private buildIfoodDeliveryLocationLink(order: any): string | null {
+    const latitude = Number(order?.delivery?.deliveryAddress?.coordinates?.latitude);
+    const longitude = Number(
+      order?.delivery?.deliveryAddress?.coordinates?.longitude,
+    );
+
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+    }
+
+    const deliveryAddress = [
+      order?.delivery?.deliveryAddress?.streetName,
+      order?.delivery?.deliveryAddress?.streetNumber,
+      order?.delivery?.deliveryAddress?.neighborhood,
+      order?.delivery?.deliveryAddress?.city,
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    return this.buildGoogleMapsLinkByAddress(deliveryAddress);
   }
   
   async resolveTargetShopkeeperId(

@@ -16,6 +16,9 @@ export class DeliveryResult {
   clientPhone: string;
 
   @Expose()
+  clientLocation?: string;
+
+  @Expose()
   status: StatusDelivery;
 
   @Expose()

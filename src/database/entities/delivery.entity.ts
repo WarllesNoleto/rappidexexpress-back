@@ -21,6 +21,9 @@ export class DeliveryEntity {
   @Column()
   clientPhone: string;
 
+  @Column({ nullable: true })
+  clientLocation?: string;
+
   @Column({ type: 'enum', enum: StatusDelivery })
   status: StatusDelivery;
 
