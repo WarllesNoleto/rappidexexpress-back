@@ -16,8 +16,22 @@ import { IfoodPollingService } from './ifood-polling.service';
 export class IfoodAutoPollingService
   implements OnModuleInit, OnModuleDestroy
 {
+  private static readonly DEFAULT_INTERVAL_MS = 30000;
+  private static readonly MAX_PRODUCTION_INTERVAL_MS = 30000;
+  private static readonly POLLING_INTERVAL_TOLERANCE_MS = 2000;
+  private static readonly DEFAULT_ACK_DEADLINE_MS = 1500;
+  private static readonly ACK_FALLBACK_BATCH_SIZE = 50;
   private readonly logger = new Logger(IfoodAutoPollingService.name);
   private intervalRef: NodeJS.Timeout | null = null;
+  private lastCycleStartedAt: number | null = null;
+  private metrics = {
+    eventsReceived: 0,
+    eventsAcked: 0,
+    pollingToAckMs: [] as number[],
+    errors429: 0,
+    errors403: 0,
+    errors400: 0,
+  };
 
   constructor(
     private readonly configService: ConfigService,
@@ -32,9 +46,7 @@ export class IfoodAutoPollingService
     const pollingEnabled =
       String(this.configService.get('IFOOD_POLLING_ENABLED')) === 'true';
 
-    const pollingIntervalMs = Number(
-      this.configService.get('IFOOD_POLLING_INTERVAL_MS') || 30000,
-    );
+    const pollingIntervalMs = this.resolvePollingIntervalMs();
 
     if (!pollingEnabled) {
       this.logger.warn('Polling automático do iFood está desativado.');
@@ -60,13 +72,52 @@ export class IfoodAutoPollingService
   }
 
   private async runPollingCycle() {
+    const cycleStartedAt = Date.now();
+
+    if (this.lastCycleStartedAt) {
+      const effectiveIntervalMs = cycleStartedAt - this.lastCycleStartedAt;
+      const maxAllowedEffectiveIntervalMs =
+        IfoodAutoPollingService.MAX_PRODUCTION_INTERVAL_MS +
+        IfoodAutoPollingService.POLLING_INTERVAL_TOLERANCE_MS;
+      if (effectiveIntervalMs > maxAllowedEffectiveIntervalMs) {
+        this.logger.error(
+          `ALERTA: intervalo efetivo de polling acima do limite (${effectiveIntervalMs}ms > ${maxAllowedEffectiveIntervalMs}ms).`,
+        );
+      }
+    }
+
+    this.lastCycleStartedAt = cycleStartedAt;
+
     try {
-      const events = await this.ifoodPollingService.pollEvents();
+      const { events, metadata } =
+        await this.ifoodPollingService.pollEventsWithMetadata();
       const allEvents = Array.isArray(events) ? events : [];
+      this.metrics.eventsReceived += allEvents.length;
+      const polledAckTargets = Array.from(
+        new Map(
+          allEvents
+            .map((event) => ({
+              id: String(event?.id || '').trim(),
+              merchantId: String(event?.merchantId || '').trim(),
+            }))
+            .filter((event) => Boolean(event.id))
+            .map((event) => [event.id, event]),
+        ).values(),
+      );
+      const polledEventIds = polledAckTargets.map((event) => event.id);
 
       this.logger.log(
         `Polling executado com sucesso. Eventos encontrados: ${allEvents.length}`,
       );
+
+      if (
+        metadata?.maxMerchantsPerBatch >
+        100
+      ) {
+        this.logger.error(
+          `ALERTA: lote com merchants acima do limite por request (${metadata.maxMerchantsPerBatch} > 100).`,
+        );
+      }
 
       const freshEvents: any[] = [];
       const pendingAckEvents: any[] = [];
@@ -98,13 +149,71 @@ export class IfoodAutoPollingService
         `Eventos pendentes de ACK neste ciclo: ${pendingAckEvents.length}`,
       );
 
+      if (polledAckTargets.length > 0) {
+        await this.ackWithDeadlineAndFallback(polledAckTargets);
+        this.metrics.eventsAcked += polledEventIds.length;
+        this.metrics.pollingToAckMs.push(Date.now() - cycleStartedAt);
+
+        for (const eventId of polledEventIds) {
+          await this.ifoodEventService.markAsAcknowledged(eventId);
+        }
+      }
+
+      const localPendingAckEvents =
+        await this.ifoodEventService.findUnacknowledgedEvents();
+      const pendingRetryAckTargets = localPendingAckEvents
+        .filter((event) => !polledEventIds.includes(event.eventId))
+        .map((event) => ({
+          id: event.eventId,
+          merchantId: event.merchantId,
+        }));
+      const pendingRetryIds = pendingRetryAckTargets.map((event) => event.id);
+
+      if (pendingRetryAckTargets.length > 0) {
+        await this.ackWithDeadlineAndFallback(pendingRetryAckTargets);
+        this.metrics.eventsAcked += pendingRetryAckTargets.length;
+
+        for (const eventId of pendingRetryIds) {
+          await this.ifoodEventService.markAsAcknowledged(eventId);
+        }
+      }
+
+      this.logger.log(
+        `ACK enviado ao iFood e confirmado localmente: ${polledEventIds.length + pendingRetryIds.length}`,
+      );
+
       const cancellationEvents = freshEvents.filter(
         (event) =>
-          event?.code === 'CAN' || event?.fullCode === 'CANCELLED',
+          event?.code === 'CAN' ||
+          event?.fullCode === 'CANCELLED' ||
+          event?.code === 'CAR' ||
+          event?.fullCode === 'CANCELLATION_REQUESTED',
       );
+
+      const conclusionEvents = freshEvents.filter(
+        (event) =>
+          event?.code === 'CON' || event?.fullCode === 'CONCLUDED',
+      );
+
+      const dropCodeRequestedEvents = freshEvents.filter(
+        (event) => event?.fullCode === 'DELIVERY_DROP_CODE_REQUESTED',
+      );
+
+      for (const event of dropCodeRequestedEvents) {
+        this.logger.log(
+          `Evento DELIVERY_DROP_CODE_REQUESTED recebido. OrderId: ${event?.orderId}. MerchantId: ${event?.merchantId || 'N/A'}.`,
+        );
+      }
 
       for (const event of cancellationEvents) {
         await this.deliveryService.cancelDeliveryFromIfood(
+          event.orderId,
+          event,
+        );
+      }
+
+      for (const event of conclusionEvents) {
+        await this.deliveryService.finishDeliveryFromIfood(
           event.orderId,
           event,
         );
@@ -114,32 +223,147 @@ export class IfoodAutoPollingService
         await this.ifoodImportService.importFromEvents(freshEvents);
 
         for (const event of freshEvents) {
-          await this.ifoodEventService.markAsProcessed(event);
+          await this.ifoodEventService.markAsProcessed(event, true);
         }
       }
 
-      const ackEvents = [...freshEvents, ...pendingAckEvents];
-
-      const eventIds = [
-        ...new Set(ackEvents.map((event) => event?.id).filter(Boolean)),
-      ];
-
-      if (eventIds.length === 0) {
-        return;
-      }
-
-      await this.ifoodPollingService.acknowledgeEvents(eventIds);
-
-      for (const eventId of eventIds) {
-        await this.ifoodEventService.markAsAcknowledged(eventId);
-      }
-
-      this.logger.log(
-        `ACK enviado ao iFood e confirmado localmente: ${eventIds.length}`,
-      );
+      this.logObservabilitySnapshot();
     } catch (error: any) {
+      this.captureHttpErrorMetrics(error);
       this.logger.error(
         `Erro no polling automático do iFood: ${error?.message || error}`,
+      );
+    }
+  }
+
+  private resolvePollingIntervalMs() {
+    const rawInterval = Number(
+      this.configService.get('IFOOD_POLLING_INTERVAL_MS') ??
+        IfoodAutoPollingService.DEFAULT_INTERVAL_MS,
+    );
+    const intervalMs = Number.isFinite(rawInterval) && rawInterval > 0
+      ? rawInterval
+      : IfoodAutoPollingService.DEFAULT_INTERVAL_MS;
+    const nodeEnv = String(this.configService.get('NODE_ENV') ?? '').toLowerCase();
+    const isProduction = nodeEnv === 'production';
+
+    if (
+      isProduction &&
+      intervalMs > IfoodAutoPollingService.MAX_PRODUCTION_INTERVAL_MS
+    ) {
+      this.logger.error(
+        `IFOOD_POLLING_INTERVAL_MS=${intervalMs} excede o máximo permitido em produção (${IfoodAutoPollingService.MAX_PRODUCTION_INTERVAL_MS}ms). Aplicando fallback.`,
+      );
+
+      return IfoodAutoPollingService.MAX_PRODUCTION_INTERVAL_MS;
+    }
+
+    return intervalMs;
+  }
+
+  private captureHttpErrorMetrics(error: any) {
+    const status = error?.response?.status;
+
+    if (status === 429) {
+      this.metrics.errors429 += 1;
+    }
+
+    if (status === 403) {
+      this.metrics.errors403 += 1;
+    }
+
+    if (status === 400) {
+      this.metrics.errors400 += 1;
+    }
+  }
+
+  private async ackWithDeadlineAndFallback(
+    events: Array<{ id: string; merchantId?: string }>,
+  ) {
+    const normalizedEvents = Array.from(
+      new Map(
+        events
+          .map((event) => ({
+            id: String(event?.id || '').trim(),
+            merchantId: String(event?.merchantId || '').trim(),
+          }))
+          .filter((event) => Boolean(event.id))
+          .map((event) => [event.id, event]),
+      ).values(),
+    );
+
+    if (normalizedEvents.length === 0) {
+      return;
+    }
+
+    const ackDeadlineMs = this.resolveAckDeadlineMs();
+    try {
+      await Promise.race([
+        this.ifoodPollingService.acknowledgeEvents(normalizedEvents),
+        this.timeoutAfter(ackDeadlineMs),
+      ]);
+    } catch (error: any) {
+      if (error?.message !== 'ACK_DEADLINE_EXCEEDED') {
+        throw error;
+      }
+
+      this.logger.error(
+        `ACK excedeu o deadline de ${ackDeadlineMs}ms. Acionando fallback por lotes.`,
+      );
+
+      await this.ackInFallbackBatches(normalizedEvents);
+    }
+  }
+
+  private async ackInFallbackBatches(
+    events: Array<{ id: string; merchantId?: string }>,
+  ) {
+    for (
+      let index = 0;
+      index < events.length;
+      index += IfoodAutoPollingService.ACK_FALLBACK_BATCH_SIZE
+    ) {
+      const chunk = events.slice(
+        index,
+        index + IfoodAutoPollingService.ACK_FALLBACK_BATCH_SIZE,
+      );
+      await this.ifoodPollingService.acknowledgeEvents(chunk);
+    }
+  }
+
+  private resolveAckDeadlineMs() {
+    const raw = Number(this.configService.get('IFOOD_ACK_DEADLINE_MS'));
+    if (Number.isFinite(raw) && raw > 0) {
+      return raw;
+    }
+    return IfoodAutoPollingService.DEFAULT_ACK_DEADLINE_MS;
+  }
+
+  private async timeoutAfter(ms: number) {
+    return new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('ACK_DEADLINE_EXCEEDED')), ms);
+    });
+  }
+
+  private logObservabilitySnapshot() {
+    const avgPollingToAckMs =
+      this.metrics.pollingToAckMs.length > 0
+        ? Math.round(
+            this.metrics.pollingToAckMs.reduce((sum, value) => sum + value, 0) /
+              this.metrics.pollingToAckMs.length,
+          )
+        : 0;
+    const ackRatio = this.metrics.eventsReceived
+      ? this.metrics.eventsAcked / this.metrics.eventsReceived
+      : 1;
+
+    this.logger.log(
+      `Métricas iFood polling: recebidos=${this.metrics.eventsReceived} ack=${this.metrics.eventsAcked} avgPollingToAckMs=${avgPollingToAckMs} erros(429/403/400)=${this.metrics.errors429}/${this.metrics.errors403}/${this.metrics.errors400}`,
+    );
+
+    if (ackRatio < 1) {
+      this.logger.error(
+        `ALERTA: taxa de ACK abaixo de 100% (${(ackRatio * 100).toFixed(2)}%).`,
       );
     }
   }

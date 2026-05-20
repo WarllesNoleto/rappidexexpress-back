@@ -26,6 +26,8 @@ import { UserRequest } from '../shared/interfaces';
 import { StatusDelivery, UserType } from '../shared/constants/enums.constants';
 import { IfoodOrderLinkService } from '../ifood/ifood-order-link.service';
 import { IfoodOrdersService } from '../ifood/ifood-orders.service';
+import { IfoodCreditsService } from '../ifood/ifood-credits.service';
+import { IfoodEventService } from '../ifood/ifood-event.service';
 import { sendNotificationsFor } from 'src/shared/utils/notification.functions';
 import { OrdersGateway } from '../gateway/orders.gateway';
 
@@ -46,19 +48,23 @@ export class DeliveryService implements OnModuleInit {
     private readonly ifoodOrdersService: IfoodOrdersService,
     @Inject(forwardRef(() => IfoodOrderLinkService))
     private readonly ifoodOrderLinkService: IfoodOrderLinkService,
+    @Inject(forwardRef(() => IfoodCreditsService))
+    private readonly ifoodCreditsService: IfoodCreditsService,
+    @Inject(forwardRef(() => IfoodEventService))
+    private readonly ifoodEventService: IfoodEventService,
   ) {}
 
   private async syncIfoodIfNeeded(
     previousDelivery: DeliveryEntity,
     nextDelivery: DeliveryEntity,
     deliveryData: UpdateDeliveryDto,
-  ) {
+  ): Promise<Partial<Record<'ifoodAssignDriverSynced' | 'ifoodGoingToOriginSynced' | 'ifoodArrivedAtOriginSynced' | 'ifoodDispatchSynced' | 'ifoodArrivedAtDestinationSynced', boolean>>> {
     if (!deliveryData.status) {
-      return;
+      return {};
     }
 
     if (previousDelivery.status === deliveryData.status) {
-      return;
+      return {};
     }
 
     const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
@@ -66,10 +72,22 @@ export class DeliveryService implements OnModuleInit {
     );
 
     if (!ifoodLink) {
-      return;
+      return {};
     }
 
-    const orderId = ifoodLink.ifoodOrderId;
+    this.logger.log(
+      `Pedido iFood identificado para sincronização. DeliveryId: ${previousDelivery.id}.`,
+    );
+
+    const orderId = String(ifoodLink.ifoodOrderId || '').trim();
+    const merchantId = String(ifoodLink.merchantId || '').trim();
+
+    if (!orderId || !merchantId) {
+      this.logger.warn(
+        `Delivery ${previousDelivery.id} é iFood, mas sem orderId/merchantId válidos. Sincronização ignorada.`,
+      );
+      return {};
+    }
 
     try {
       if (deliveryData.status === StatusDelivery.ONCOURSE) {
@@ -81,28 +99,102 @@ export class DeliveryService implements OnModuleInit {
           );
         }
 
-        await this.ifoodOrdersService.assignDriver(orderId, motoboy);
-        await this.ifoodOrdersService.notifyGoingToOrigin(orderId);
-        return;
+        if (!previousDelivery.ifoodAssignDriverSynced) {
+          await this.ifoodOrdersService.assignDriver(orderId, motoboy, merchantId);
+          this.logger.log(
+            `assignDriver enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+          );
+        }
+
+        if (!previousDelivery.ifoodGoingToOriginSynced) {
+          await this.ifoodOrdersService.notifyGoingToOrigin(orderId, merchantId);
+          this.logger.log(
+            `goingToOrigin enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+          );
+        }
+
+        return {
+          ifoodAssignDriverSynced: true,
+          ifoodGoingToOriginSynced: true,
+        };
       }
 
       if (deliveryData.status === StatusDelivery.COLLECTED) {
-        await this.ifoodOrdersService.notifyArrivedAtOrigin(orderId);
-        await this.ifoodOrdersService.dispatchLogisticsOrder(orderId);
-        await this.ifoodOrdersService.dispatchOrder(orderId);
-        return;
+        if (!previousDelivery.ifoodArrivedAtOriginSynced) {
+          await this.ifoodOrdersService.notifyArrivedAtOrigin(orderId, merchantId);
+          this.logger.log(
+            `arrivedAtOrigin enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+          );
+        }
+
+        if (!previousDelivery.ifoodDispatchSynced) {
+          await this.ifoodOrdersService.dispatchLogisticsOrder(orderId, merchantId);
+          this.logger.log(
+            `dispatch Logistics enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+          );
+        }
+
+        return {
+          ifoodArrivedAtOriginSynced: true,
+          ifoodDispatchSynced: true,
+        };
+      }
+
+      if (
+        deliveryData.status === StatusDelivery.ARRIVED_AT_DESTINATION ||
+        deliveryData.status === StatusDelivery.AWAITING_CODE
+      ) {
+        if (!previousDelivery.ifoodArrivedAtDestinationSynced) {
+          await this.ifoodOrdersService.notifyArrivedAtDestination(
+            orderId,
+            merchantId,
+          );
+          this.logger.log(
+            `arrivedAtDestination enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+          );
+        }
+        return { ifoodArrivedAtDestinationSynced: true };
       }
 
       if (deliveryData.status === StatusDelivery.CANCELED) {
         await this.ifoodOrdersService.requestCancellation(
           orderId,
           'Cancelado no Rappidex pela alteração do status da entrega.',
+          merchantId,
         );
-        return;
+        return {};
       }
 
       if (deliveryData.status === StatusDelivery.FINISHED) {
-        await this.ifoodOrdersService.notifyArrivedAtDestination(orderId);
+        if (
+          !previousDelivery.ifoodArrivedAtDestinationSynced &&
+          previousDelivery.status !== StatusDelivery.ARRIVED_AT_DESTINATION &&
+          previousDelivery.status !== StatusDelivery.AWAITING_CODE
+        ) {
+          throw new BadRequestException(
+            'Antes de finalizar, informe a chegada no destino para sincronizar o iFood.',
+          );
+        }
+
+        const isOrderAlreadyCanceled = await this.isIfoodOrderCanceled(
+          orderId,
+          merchantId,
+        );
+
+        if (isOrderAlreadyCanceled) {
+          throw new BadRequestException(
+            'Este pedido foi cancelado no iFood e não pode ser finalizado no Rappidex. Cancele a entrega localmente.',
+          );
+        }
+
+        const hasDeliveryDropCodeRequested =
+          await this.ifoodEventService.hasDeliveryDropCodeRequested(orderId);
+
+        if (!hasDeliveryDropCodeRequested) {
+          throw new BadRequestException(
+            'O pedido ainda não está elegível para validação do código no iFood (DELIVERY_DROP_CODE_REQUESTED).',
+          );
+        }
 
         if (!deliveryData.deliveryCode) {
           throw new BadRequestException(
@@ -110,9 +202,14 @@ export class DeliveryService implements OnModuleInit {
           );
         }
 
+        this.logger.log(
+          `verifyDeliveryCode enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+        );
+
         const verifyResult = await this.ifoodOrdersService.verifyDeliveryCode(
           orderId,
           deliveryData.deliveryCode,
+          merchantId,
         );
 
         if (verifyResult?.success === false) {
@@ -121,9 +218,11 @@ export class DeliveryService implements OnModuleInit {
           );
         }
       }
+
+      return {};
     } catch (error: any) {
       this.logger.error(
-        `Falha ao sincronizar delivery ${previousDelivery.id} com o iFood.`,
+        `Falha ao sincronizar delivery ${previousDelivery.id} com o iFood. status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
         error?.stack || error,
       );
 
@@ -137,6 +236,32 @@ export class DeliveryService implements OnModuleInit {
       throw new InternalServerErrorException(
         'Não foi possível sincronizar o status da entrega com o iFood.',
       );
+    }
+  }
+
+  private async isIfoodOrderCanceled(
+    orderId: string,
+    merchantId?: string | null,
+  ) {
+    try {
+      const orderDetails = await this.ifoodOrdersService.getOrderDetails(
+        orderId,
+        merchantId,
+      );
+
+      const orderStatus = String(
+        orderDetails?.orderStatus ||
+          orderDetails?.status ||
+          orderDetails?.metadata?.status ||
+          '',
+      ).toUpperCase();
+
+      return orderStatus.includes('CANCEL');
+    } catch (error: any) {
+      this.logger.warn(
+        `Não foi possível verificar o status do pedido iFood ${orderId} antes da finalização local. ${error?.message || error}`,
+      );
+      return false;
     }
   }
 
@@ -168,9 +293,7 @@ export class DeliveryService implements OnModuleInit {
   }
 
   private shouldSyncIfoodInBackground(status?: StatusDelivery) {
-    return (
-      status === StatusDelivery.ONCOURSE || status === StatusDelivery.COLLECTED
-    );
+    return false;
   }
 
   private syncIfoodInBackground(
@@ -188,6 +311,23 @@ export class DeliveryService implements OnModuleInit {
         error?.stack || error,
       );
     });
+  }
+
+  private async refundCreditForCanceledDelivery(
+    delivery: DeliveryEntity,
+    reason: string,
+    ifoodOrderId?: string,
+  ) {
+    const establishmentId = delivery?.establishment?.id;
+    if (!establishmentId) {
+      return;
+    }
+
+    await this.ifoodCreditsService.refundCreditForOrder(
+      establishmentId,
+      ifoodOrderId || delivery.id,
+      reason,
+    );
   }
 
   private sendStatusNotificationInBackground(
@@ -283,8 +423,19 @@ export class DeliveryService implements OnModuleInit {
         : Promise.resolve(undefined),
     ]);
 
+    const ifoodLinks = await this.ifoodOrderLinkService.findByDeliveryIds(
+      deliveries.map((delivery) => delivery.id),
+    );
+    const ifoodDeliveryIds = new Set(
+      ifoodLinks.map((ifoodLink) => ifoodLink.deliveryId),
+    );
+    const deliveriesWithSource = deliveries.map((delivery) => ({
+      ...delivery,
+      isIfoodOrder: ifoodDeliveryIds.has(delivery.id),
+    }));
+
     return ListDeliverysResult.fromEntities(
-      deliveries,
+      deliveriesWithSource as any,
       deliveries.length,
       queryParams.page,
       count,
@@ -304,7 +455,7 @@ export class DeliveryService implements OnModuleInit {
     } as ListDeliveriesQueryDTO);
 
     const assignedWhere = this.buildDeliveriesWhere(userForRequest, {
-      status: `${StatusDelivery.ONCOURSE},${StatusDelivery.COLLECTED}`,
+      status: `${StatusDelivery.ONCOURSE},${StatusDelivery.COLLECTED},${StatusDelivery.ARRIVED_AT_DESTINATION},${StatusDelivery.AWAITING_CODE}`,
     } as ListDeliveriesQueryDTO);
 
     const [pending, assigned] = await Promise.all([
@@ -406,6 +557,8 @@ export class DeliveryService implements OnModuleInit {
             StatusDelivery.PENDING,
             StatusDelivery.ONCOURSE,
             StatusDelivery.COLLECTED,
+            StatusDelivery.ARRIVED_AT_DESTINATION,
+            StatusDelivery.AWAITING_CODE,
           ],
         };
         where['establishment.cityId'] = userFinded.cityId;
@@ -435,12 +588,38 @@ export class DeliveryService implements OnModuleInit {
       };
     }
 
+    if (deliveryData.status === StatusDelivery.ARRIVED_AT_DESTINATION) {
+      const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
+        deliveryFinded.id,
+      );
+
+      if (ifoodLink?.ifoodOrderId) {
+        const canRequestCode =
+          await this.ifoodEventService.hasDeliveryDropCodeRequested(
+            ifoodLink.ifoodOrderId,
+          );
+
+        if (canRequestCode) {
+          changedDelivery.status = StatusDelivery.AWAITING_CODE;
+          deliveryData.status = StatusDelivery.AWAITING_CODE;
+        }
+      }
+    }
+
     if (deliveryData.status) {
       const dateForUse = addHours(new Date(), -3);
       if (deliveryData.status === StatusDelivery.ONCOURSE) {
         changedDelivery['onCoursedAt'] = dateForUse;
       } else if (deliveryData.status === StatusDelivery.COLLECTED) {
         changedDelivery['collectedAt'] = dateForUse;
+        changedDelivery['ifoodArrivedAtOriginSynced'] = true;
+        changedDelivery['ifoodDispatchSynced'] = true;
+      } else if (
+        deliveryData.status === StatusDelivery.ARRIVED_AT_DESTINATION ||
+        deliveryData.status === StatusDelivery.AWAITING_CODE
+      ) {
+        changedDelivery['arrivedAtDestinationAt'] = dateForUse;
+        changedDelivery['ifoodArrivedAtDestinationSynced'] = true;
       } else if (deliveryData.status === StatusDelivery.FINISHED) {
         changedDelivery['finishedAt'] = dateForUse;
       }
@@ -459,6 +638,33 @@ export class DeliveryService implements OnModuleInit {
         changedDelivery,
         motoboyFinded,
       );
+
+      let ifoodSyncFlags = {};
+
+      try {
+        ifoodSyncFlags = await this.syncIfoodIfNeeded(
+          deliveryFinded,
+          deliveryUpdated,
+          deliveryData,
+        );
+      } catch (error: any) {
+        this.logger.error(
+          `Claim atômico concluído para delivery ${deliveryFinded.id}, mas falhou sincronização iFood no fluxo PENDENTE -> ACAMINHO. Iniciando rollback condicional para PENDENTE.`,
+          error?.stack || error,
+        );
+
+        await this.rollbackPendingClaimAfterIfoodSyncFailure(
+          deliveryFinded.id,
+          motoboyFinded.id,
+        );
+
+        throw new InternalServerErrorException(
+          'Não foi possível sincronizar com o iFood. Tente aceitar novamente.',
+        );
+      }
+
+      await this.saveIfoodSyncFlags(deliveryUpdated.id, ifoodSyncFlags);
+      deliveryUpdated = { ...deliveryUpdated, ...ifoodSyncFlags } as DeliveryEntity;
     } else {
       const deliveryForSync = {
         ...changedDelivery,
@@ -470,8 +676,10 @@ export class DeliveryService implements OnModuleInit {
         deliveryData.status,
       );
 
+      let ifoodSyncFlags = {};
+
       if (!shouldSyncInBackground) {
-        await this.syncIfoodIfNeeded(
+        ifoodSyncFlags = await this.syncIfoodIfNeeded(
           deliveryFinded,
           deliveryForSync as DeliveryEntity,
           deliveryData,
@@ -482,6 +690,7 @@ export class DeliveryService implements OnModuleInit {
         deliveryUpdated = await this.deliveryRepository.save(
           this.buildPersistableDelivery({
             ...changedDelivery,
+            ...ifoodSyncFlags,
             updatedAt: addHours(new Date(), -3),
           }),
         );
@@ -503,6 +712,21 @@ export class DeliveryService implements OnModuleInit {
       deliveryUpdated.establishment?.cityId ??
         deliveryFinded.establishment?.cityId,
     );
+
+    if (
+      deliveryData.status === StatusDelivery.CANCELED &&
+      deliveryFinded.status !== StatusDelivery.CANCELED
+    ) {
+      const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
+        deliveryFinded.id,
+      );
+
+      await this.refundCreditForCanceledDelivery(
+        deliveryFinded,
+        'Crédito estornado por cancelamento da entrega.',
+        ifoodLink?.ifoodOrderId,
+      );
+    }
 
     const subscriptionId =
       deliveryFinded.establishment?.notification?.subscriptionId;
@@ -537,6 +761,7 @@ export class DeliveryService implements OnModuleInit {
   async createDelivery(
     deliveryData: CreateDeliveryDto,
     user: UserRequest,
+    options?: { skipCreditConsumption?: boolean; creditOrderId?: string },
   ): Promise<DeliveryResult> {
     const userFinded = await this.findOneUserById(user.id);
     let establishment;
@@ -588,8 +813,17 @@ export class DeliveryService implements OnModuleInit {
     }
 
     try {
+      const deliveryId = uuid();
+
+      if (!options?.skipCreditConsumption) {
+        await this.ifoodCreditsService.consumeCreditForOrder(
+          establishment.id,
+          options?.creditOrderId || deliveryId,
+        );
+      }
+
       const newDelivery = await this.deliveryRepository.save({
-        id: uuid(),
+        id: deliveryId,
         clientName,
         clientPhone,
         status: deliveryStatus,
@@ -658,6 +892,7 @@ export class DeliveryService implements OnModuleInit {
       await this.ifoodOrdersService.requestCancellation(
         ifoodLink.ifoodOrderId,
         'Cancelado no Rappidex pela exclusão da entrega.',
+        ifoodLink.merchantId,
       );
     }
 
@@ -668,6 +903,12 @@ export class DeliveryService implements OnModuleInit {
         isActive: false,
         updatedAt: addHours(new Date(), -3),
       });
+
+      await this.refundCreditForCanceledDelivery(
+        deliveryFinded,
+        'Crédito estornado por exclusão da entrega.',
+        ifoodLink?.ifoodOrderId,
+      );
 
       this.ordersGateway.emitDeliveryDeleted(
         deliveryFinded.id,
@@ -699,12 +940,25 @@ export class DeliveryService implements OnModuleInit {
       return;
     }
 
+    const ifoodCancellationCode = event?.fullCode || event?.code || 'CANCELLED';
+    const ifoodCancellationNote = `Cancelamento iFood: ${ifoodCancellationCode} | OrderId: ${orderId}`;
+    const nextObservation = deliveryFinded.observation
+      ? `${deliveryFinded.observation} | ${ifoodCancellationNote}`
+      : ifoodCancellationNote;
+
     await this.deliveryRepository.save({
       ...deliveryFinded,
       status: StatusDelivery.CANCELED,
       isActive: false,
+      observation: nextObservation,
       updatedAt: addHours(new Date(), -3),
     });
+
+    await this.refundCreditForCanceledDelivery(
+      deliveryFinded,
+      'Crédito estornado por cancelamento recebido do iFood.',
+      orderId,
+    );
 
     this.ordersGateway.emitDeliveryDeleted(
       deliveryFinded.id,
@@ -713,6 +967,46 @@ export class DeliveryService implements OnModuleInit {
 
     this.logger.warn(
       `Entrega ${deliveryFinded.id} cancelada no Rappidex por evento ${event?.fullCode || event?.code || 'CANCELLED'} do iFood. OrderId: ${orderId}`,
+    );
+  }
+
+  async finishDeliveryFromIfood(orderId: string, event?: any) {
+    const ifoodLink =
+      await this.ifoodOrderLinkService.findByIfoodOrderId(orderId);
+
+    if (!ifoodLink) {
+      return;
+    }
+
+    const deliveryFinded = await this.deliveryRepository.findOne({
+      where: {
+        id: ifoodLink.deliveryId,
+      },
+      relations: { establishment: true },
+    });
+
+    if (!deliveryFinded || !deliveryFinded.isActive) {
+      return;
+    }
+
+    if (deliveryFinded.status === StatusDelivery.FINISHED) {
+      return;
+    }
+
+    const deliveryUpdated = await this.deliveryRepository.save({
+      ...deliveryFinded,
+      status: StatusDelivery.FINISHED,
+      finishedAt: addHours(new Date(), -3),
+      updatedAt: addHours(new Date(), -3),
+    });
+
+    this.ordersGateway.emitDeliveryUpdated(
+      DeliveryResult.fromEntity(deliveryUpdated),
+      deliveryUpdated.establishment?.cityId,
+    );
+
+    this.logger.log(
+      `Entrega ${deliveryFinded.id} finalizada no Rappidex por evento ${event?.fullCode || event?.code || 'CONCLUDED'} do iFood. OrderId: ${orderId}`,
     );
   }
 
@@ -779,9 +1073,76 @@ export class DeliveryService implements OnModuleInit {
       updatedAt: data.updatedAt ?? null,
       onCoursedAt: data.onCoursedAt ?? null,
       collectedAt: data.collectedAt ?? null,
+      arrivedAtDestinationAt: data.arrivedAtDestinationAt ?? null,
       finishedAt: data.finishedAt ?? null,
+      ifoodAssignDriverSynced: data.ifoodAssignDriverSynced ?? false,
+      ifoodGoingToOriginSynced: data.ifoodGoingToOriginSynced ?? false,
+      ifoodArrivedAtOriginSynced: data.ifoodArrivedAtOriginSynced ?? false,
+      ifoodDispatchSynced: data.ifoodDispatchSynced ?? false,
+      ifoodArrivedAtDestinationSynced:
+        data.ifoodArrivedAtDestinationSynced ?? false,
     };
   }
+
+
+  private async saveIfoodSyncFlags(
+    deliveryId: string,
+    flags: Partial<Record<string, boolean>>,
+  ) {
+    const keysToPersist = Object.keys(flags).filter((key) => flags[key]);
+
+    if (!keysToPersist.length) {
+      return;
+    }
+
+    const updatePayload = keysToPersist.reduce((acc, key) => {
+      acc[key] = true;
+      return acc;
+    }, { updatedAt: addHours(new Date(), -3) } as Record<string, any>);
+
+    await this.deliveryRepository.updateOne(
+      { id: deliveryId } as any,
+      { $set: updatePayload } as any,
+    );
+  }
+
+  private async rollbackPendingClaimAfterIfoodSyncFailure(
+    deliveryId: string,
+    motoboyId: string,
+  ) {
+    const rollbackAt = addHours(new Date(), -3);
+
+    const rollbackResult = await this.deliveryRepository.updateOne(
+      {
+        id: deliveryId,
+        isActive: true,
+        status: StatusDelivery.ONCOURSE,
+        'motoboy.id': motoboyId,
+      } as any,
+      {
+        $set: {
+          status: StatusDelivery.PENDING,
+          motoboy: null,
+          onCoursedAt: null,
+          ifoodAssignDriverSynced: false,
+          ifoodGoingToOriginSynced: false,
+          updatedAt: rollbackAt,
+        },
+      } as any,
+    );
+
+    if (rollbackResult?.modifiedCount) {
+      this.logger.warn(
+        `Rollback aplicado para delivery ${deliveryId} após falha de sincronização iFood no fluxo PENDENTE -> ACAMINHO. Entrega retornada para PENDENTE e motoboy removido.`,
+      );
+      return;
+    }
+
+    this.logger.warn(
+      `Rollback não aplicado para delivery ${deliveryId} após falha de sincronização iFood, pois a entrega não estava mais em ACAMINHO com o mesmo motoboy.`,
+    );
+  }
+
 
   private async claimPendingDeliveryAtomically(
     deliveryFinded: DeliveryEntity,
@@ -912,7 +1273,13 @@ export class DeliveryService implements OnModuleInit {
     userForRequest: UserEntity,
     queryParams: ListDeliveriesQueryDTO,
   ) {
-    const where: Record<string, any> = { isActive: true };
+    const selectedStatuses = queryParams.status
+      ? queryParams.status.split(',')
+      : [];
+    const includeCanceled = selectedStatuses.includes(StatusDelivery.CANCELED);
+    const where: Record<string, any> = {
+      isActive: includeCanceled ? { $in: [true, false] } : true,
+    };
 
     where['establishment.cityId'] = userForRequest.cityId;
 
@@ -920,8 +1287,7 @@ export class DeliveryService implements OnModuleInit {
       userForRequest.type === UserType.ADMIN ||
       userForRequest.type === UserType.SUPERADMIN
     ) {
-      if (queryParams.status)
-        where['status'] = { $in: queryParams.status.split(',') };
+      if (selectedStatuses.length) where['status'] = { $in: selectedStatuses };
       if (queryParams.establishmentId)
         where['establishment.id'] = queryParams.establishmentId;
       if (queryParams.motoboyId) where['motoboy.id'] = queryParams.motoboyId;
@@ -929,12 +1295,11 @@ export class DeliveryService implements OnModuleInit {
     }
 
     if (userForRequest.type === UserType.MOTOBOY) {
-      if (queryParams.status) {
-        const arrayOnStatus = queryParams.status.split(',');
-        where['status'] = { $in: arrayOnStatus };
+      if (selectedStatuses.length) {
+        where['status'] = { $in: selectedStatuses };
 
         // Se tiver um momento em que for necessario que o motoboy solicite todos os pedidos, ele vai conseguir ver tudo
-        if (!arrayOnStatus.includes(StatusDelivery.PENDING)) {
+        if (!selectedStatuses.includes(StatusDelivery.PENDING)) {
           where['motoboy.id'] = userForRequest.id;
         }
       } else {
@@ -951,8 +1316,7 @@ export class DeliveryService implements OnModuleInit {
       userForRequest.type === UserType.SHOPKEEPERADMIN
     ) {
       where['establishment.id'] = userForRequest.id;
-      if (queryParams.status)
-        where['status'] = { $in: queryParams.status.split(',') };
+        if (selectedStatuses.length) where['status'] = { $in: selectedStatuses };
       if (queryParams.motoboyId) where['motoboy.id'] = queryParams.motoboyId;
     }
 

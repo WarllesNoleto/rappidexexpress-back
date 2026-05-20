@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DeliveryService } from '../delivery/delivery.service';
+import { IfoodEventService } from './ifood-event.service';
 import { IfoodOrderLinkService } from './ifood-order-link.service';
 import { IfoodOrdersService } from './ifood-orders.service';
 import { IfoodReadinessService } from './ifood-readiness.service';
@@ -10,16 +10,18 @@ export class IfoodImportService {
   private readonly logger = new Logger(IfoodImportService.name);
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly deliveryService: DeliveryService,
     private readonly ifoodOrdersService: IfoodOrdersService,
     private readonly ifoodOrderLinkService: IfoodOrderLinkService,
     private readonly ifoodReadinessService: IfoodReadinessService,
+    private readonly ifoodEventService: IfoodEventService,
   ) {}
 
   async importFromEvents(events: any[]) {
     if (!Array.isArray(events) || events.length === 0) {
-      this.logger.log('Importação automática: nenhum evento recebido do iFood.');
+      this.logger.log(
+        'Importação automática: nenhum evento recebido do iFood.',
+      );
       return;
     }
 
@@ -38,22 +40,17 @@ export class IfoodImportService {
       return;
     }
 
-    const uniqueOrderIds = [
-      ...new Set(eligibleEvents.map((event) => event?.orderId).filter(Boolean)),
+    const uniqueOrders = [
+      ...new Map(
+        eligibleEvents
+          .filter((event) => event?.orderId)
+          .map((event) => [event.orderId, event]),
+      ).values(),
     ];
 
-    const targetShopkeeperId = this.configService.get<string>(
-      'IFOOD_TARGET_SHOPKEEPER_ID',
-    );
-
-    if (!targetShopkeeperId) {
-      this.logger.error(
-        'Importação automática: IFOOD_TARGET_SHOPKEEPER_ID não configurado.',
-      );
-      return;
-    }
-
-    for (const orderId of uniqueOrderIds) {
+    for (const eventReference of uniqueOrders) {
+      const orderId = eventReference?.orderId;
+      const merchantId = eventReference?.merchantId ?? null;
       try {
         const existingLink =
           await this.ifoodOrderLinkService.findByIfoodOrderId(orderId);
@@ -81,9 +78,27 @@ export class IfoodImportService {
           continue;
         }
 
-        const order = await this.ifoodOrdersService.getOrderDetails(orderId);
+        const order = await this.ifoodOrdersService.getOrderDetails(
+          orderId,
+          merchantId,
+        );
+        const targetShopkeeperId: string | null =
+          await this.ifoodOrdersService.resolveTargetShopkeeperId(
+            order?.merchant?.id,
+          );
+
+        if (!targetShopkeeperId) {
+          this.logger.error(
+            `Importação automática: nenhum lojista configurado para o merchantId ${order?.merchant?.id ?? '(vazio)'}.`,
+          );
+          continue;
+        }
+
         const deliveryDto =
-          await this.ifoodOrdersService.buildCreateDeliveryDto(orderId);
+          await this.ifoodOrdersService.buildCreateDeliveryDto(
+            orderId,
+            merchantId,
+          );
 
         const createdDelivery = await this.deliveryService.createDelivery(
           deliveryDto,
@@ -95,6 +110,7 @@ export class IfoodImportService {
             permission: 'admin' as any,
             cityId: '',
           },
+          { creditOrderId: orderId },
         );
 
         await this.ifoodOrderLinkService.createLink({
@@ -114,5 +130,56 @@ export class IfoodImportService {
         );
       }
     }
+  }
+  async retryPendingImportsForCompany(companyId: string, limit = 500) {
+    const recentEvents =
+      await this.ifoodEventService.findRecentEligibleImportEvents(limit);
+
+    if (recentEvents.length === 0) {
+      this.logger.log(
+        `Reprocessamento pós-crédito: nenhum evento elegível encontrado para a empresa ${companyId}.`,
+      );
+      return;
+    }
+
+    const filteredEvents: any[] = [];
+
+    for (const event of recentEvents) {
+      if (!event?.merchantId || !event?.orderId) {
+        continue;
+      }
+
+      const targetShopkeeperId =
+        await this.ifoodOrdersService.resolveTargetShopkeeperId(
+          event.merchantId,
+        );
+
+      if (targetShopkeeperId !== companyId) {
+        continue;
+      }
+
+      filteredEvents.push({
+        id: event.eventId,
+        orderId: event.orderId,
+        merchantId: event.merchantId,
+        code: event.code,
+        fullCode: event.fullCode,
+        salesChannel: event.salesChannel,
+        createdAt: event.createdAt,
+      });
+    }
+
+    if (filteredEvents.length === 0) {
+      this.logger.log(
+        `Reprocessamento pós-crédito: sem eventos pendentes para a empresa ${companyId}.`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `Reprocessamento pós-crédito: ${filteredEvents.length} evento(s) serão reavaliados para a empresa ${companyId}.`,
+    );
+
+    await this.importFromEvents(filteredEvents);
   }
 }

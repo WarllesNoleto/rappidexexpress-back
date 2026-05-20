@@ -22,15 +22,43 @@ export class IfoodEventService {
     return Array.isArray(events) ? events : [];
   }
 
-  async markAsProcessed(event: {
-    id: string;
-    orderId?: string;
-    merchantId?: string;
-    code?: string;
-    fullCode?: string;
-    salesChannel?: string;
-    createdAt?: string;
-  }) {
+  async hasDeliveryDropCodeRequested(orderId: string) {
+    const events = await this.findByOrderId(orderId);
+
+    return events.some(
+      (event) => event?.fullCode === 'DELIVERY_DROP_CODE_REQUESTED',
+    );
+  }
+
+  async findRecentEligibleImportEvents(limit = 500) {
+    const events = await this.ifoodEventRepository.find({
+      where: {
+        $or: [
+          { code: 'RTP' },
+          { fullCode: 'READY_TO_PICKUP' },
+          { code: 'DSP' },
+          { fullCode: 'DISPATCHED' },
+        ],
+      } as any,
+      order: { processedAt: 'DESC' },
+      take: limit,
+    });
+
+    return Array.isArray(events) ? events : [];
+  }
+
+  async markAsProcessed(
+    event: {
+      id: string;
+      orderId?: string;
+      merchantId?: string;
+      code?: string;
+      fullCode?: string;
+      salesChannel?: string;
+      createdAt?: string;
+    },
+    acknowledged = false,
+  ) {
     return this.ifoodEventRepository.save({
       eventId: event.id,
       orderId: event.orderId ?? '',
@@ -40,7 +68,7 @@ export class IfoodEventService {
       salesChannel: event.salesChannel ?? '',
       createdAt: event.createdAt ?? '',
       processedAt: new Date(),
-      acknowledged: false,
+      acknowledged,
     });
   }
 
@@ -53,5 +81,31 @@ export class IfoodEventService {
         },
       } as any,
     );
+  }
+
+  async findUnacknowledgedEventIds(limit = 500) {
+    const events = await this.findUnacknowledgedEvents(limit);
+
+    return events.map((event) => event.eventId);
+  }
+
+  async findUnacknowledgedEvents(limit = 500) {
+    const events = await this.ifoodEventRepository.find({
+      where: {
+        acknowledged: false,
+      } as any,
+      take: limit,
+      select: {
+        eventId: true,
+        merchantId: true,
+      } as any,
+    });
+
+    return (Array.isArray(events) ? events : [])
+      .map((event) => ({
+        eventId: String(event?.eventId || '').trim(),
+        merchantId: String((event as any)?.merchantId || '').trim(),
+      }))
+      .filter((event) => Boolean(event.eventId));
   }
 }

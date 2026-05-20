@@ -27,6 +27,12 @@ import { StatusDelivery, UserType } from '../shared/constants/enums.constants';
 import { UserRequest } from '../shared/interfaces';
 import { addHours } from 'date-fns';
 
+type MotoboyDeliverySummary = {
+  name: string;
+  lastDeliveryDate: DeliveryEntity[];
+  id: string;
+};
+
 @Injectable()
 export class UserService {
   constructor(
@@ -64,6 +70,10 @@ export class UserService {
       .replace(' ', '');
 
     const city = await this.resolveCity(data.cityId, requester);
+    const useIfoodIntegration = Boolean(data.useIfoodIntegration);
+    const ifoodMerchantId = useIfoodIntegration
+      ? (data.ifoodMerchantId?.trim() ?? '')
+      : '';
 
     try {
       const newUser = await this.userRepository.save({
@@ -72,13 +82,20 @@ export class UserService {
         cityId: city.id.toHexString(),
         phone,
         password: passHash,
+        useIfoodIntegration,
+        ifoodMerchantId,
+        ifoodClientId: '',
+        ifoodClientSecret: '',
+        ifoodOrdersReleased: Number(data.ifoodOrdersReleased || 0),
+        ifoodOrdersUsed: Number(data.ifoodOrdersUsed || 0),
+        ifoodOrdersAvailable: Number(data.ifoodOrdersAvailable || 0),
         isActive: true,
         createdAt: addHours(new Date(), -3),
         updatedAt: addHours(new Date(), -3),
       });
       return UserResult.fromEntity(newUser);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -147,7 +164,7 @@ export class UserService {
     try {
       users = await this.userRepository.find({ where, skip, take, order });
     } catch (error) {
-      return error;
+      throw error;
     }
 
     return ListUsersResult.fromEntities(users, users.length, queryParams.page);
@@ -170,15 +187,32 @@ export class UserService {
     }
 
     try {
+      const useIfoodIntegration =
+        data.useIfoodIntegration ?? userToUpdate.useIfoodIntegration ?? false;
+
+      const ifoodMerchantId = useIfoodIntegration
+        ? (data.ifoodMerchantId ?? userToUpdate.ifoodMerchantId ?? '').trim()
+        : '';
+
       const changedUser = await this.userRepository.save({
         ...userToUpdate,
         ...data,
         cityId,
+        useIfoodIntegration,
+        ifoodMerchantId,
+        ifoodClientId: '',
+        ifoodClientSecret: '',
+        ifoodOrdersReleased:
+          data.ifoodOrdersReleased ?? userToUpdate.ifoodOrdersReleased ?? 0,
+        ifoodOrdersUsed:
+          data.ifoodOrdersUsed ?? userToUpdate.ifoodOrdersUsed ?? 0,
+        ifoodOrdersAvailable:
+          data.ifoodOrdersAvailable ?? userToUpdate.ifoodOrdersAvailable ?? 0,
         updatedAt: addHours(new Date(), -3),
       });
       return UserResult.fromEntity(changedUser);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -274,7 +308,7 @@ export class UserService {
       });
       return UserResult.fromEntity(changedUser);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -285,7 +319,7 @@ export class UserService {
       });
       return UserResult.fromEntity(myself);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -304,7 +338,7 @@ export class UserService {
       this.ensureCityAccess(requester, userFinded.cityId);
       return UserResult.fromEntity(userFinded);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
@@ -355,7 +389,12 @@ export class UserService {
             isActive: true,
             'motoboy.id': motoboy.id,
             status: {
-              $in: [StatusDelivery.ONCOURSE, StatusDelivery.COLLECTED],
+              $in: [
+                StatusDelivery.ONCOURSE,
+                StatusDelivery.COLLECTED,
+                StatusDelivery.ARRIVED_AT_DESTINATION,
+                StatusDelivery.AWAITING_CODE,
+              ],
             },
           };
 
@@ -390,12 +429,14 @@ export class UserService {
 
       return await this.changeNameForMotoboy(motoboysWithDeliveriesCount);
     } catch (error) {
-      return error;
+      throw error;
     }
   }
 
-  async changeNameForMotoboy(motoboysWithDeliveriesCount) {
-    const newArrayForMotoboys = [];
+  async changeNameForMotoboy(
+    motoboysWithDeliveriesCount: MotoboyDeliverySummary[],
+  ): Promise<Record<string, string>[]> {
+    const newArrayForMotoboys: Record<string, string>[] = [];
     motoboysWithDeliveriesCount.forEach((motoboy) => {
       let hour = 'sem ultima entrega';
       if (motoboy.lastDeliveryDate[0]) {
@@ -457,7 +498,7 @@ export class UserService {
         status: JSON.stringify(data.notification),
       };
       await this.logRepository.save(newLogError);
-      return error;
+      throw error;
     }
   }
 

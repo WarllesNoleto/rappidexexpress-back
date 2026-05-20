@@ -1,4 +1,11 @@
-import { IsEnum, IsMongoId, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsMongoId,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import {
   UserType,
   Permissions as UserPermissions,
@@ -37,4 +44,32 @@ export class CreateUserDto {
   @IsMongoId()
   @IsOptional()
   cityId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  useIfoodIntegration?: boolean;
+
+  @IsString()
+  @IsOptional()
+  ifoodMerchantId?: string;
+  
+  @IsString()
+  @IsOptional()
+  ifoodClientId?: string;
+
+  @IsString()
+  @IsOptional()
+  ifoodClientSecret?: string;
+
+  @IsOptional()
+  @IsNumber()
+  ifoodOrdersReleased?: number;
+
+  @IsOptional()
+  @IsNumber()
+  ifoodOrdersUsed?: number;
+
+  @IsOptional()
+  @IsNumber()
+  ifoodOrdersAvailable?: number;
 }

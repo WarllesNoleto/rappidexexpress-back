@@ -67,6 +67,9 @@ export class DeliveryResult {
   collectedAt: Date;
 
   @Expose()
+  arrivedAtDestinationAt?: Date;
+
+  @Expose()
   finishedAt: Date;
 
   @Expose()
@@ -78,11 +81,15 @@ export class DeliveryResult {
   @Expose()
   isActive: boolean;
 
+  @Expose()
+  isIfoodOrder?: boolean;
+
   public static fromEntity(delivery: DeliveryEntity) {
     return plainToClass<DeliveryResult, DeliveryResult>(
       DeliveryResult,
       {
         ...delivery,
+        isIfoodOrder: (delivery as any).isIfoodOrder ?? false,
         establishmentId: delivery.establishment
           ? delivery.establishment.id
           : null,
@@ -106,6 +113,7 @@ export class DeliveryResult {
           : null,
         onCoursedAt: delivery.onCoursedAt,
         collectedAt: delivery.collectedAt,
+        arrivedAtDestinationAt: (delivery as any).arrivedAtDestinationAt,
         finishedAt: delivery.finishedAt,
         motoboyId: delivery.motoboy ? delivery.motoboy.id : null,
         motoboyName: delivery.motoboy ? delivery.motoboy.name : null,

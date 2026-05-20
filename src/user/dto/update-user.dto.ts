@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsEnum,
   IsMongoId,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -49,4 +50,32 @@ export class UpdateUserDto {
   @IsMongoId()
   @IsOptional()
   cityId?: string;
+  
+  @IsBoolean()
+  @IsOptional()
+  useIfoodIntegration?: boolean;
+
+  @IsString()
+  @IsOptional()
+  ifoodMerchantId?: string;
+  
+  @IsString()
+  @IsOptional()
+  ifoodClientId?: string;
+
+  @IsString()
+  @IsOptional()
+  ifoodClientSecret?: string;
+
+  @IsOptional()
+  @IsNumber()
+  ifoodOrdersReleased?: number;
+
+  @IsOptional()
+  @IsNumber()
+  ifoodOrdersUsed?: number;
+
+  @IsOptional()
+  @IsNumber()
+  ifoodOrdersAvailable?: number;
 }
