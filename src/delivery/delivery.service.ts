@@ -157,11 +157,18 @@ export class DeliveryService implements OnModuleInit {
       }
 
       if (deliveryData.status === StatusDelivery.CANCELED) {
-        await this.ifoodOrdersService.requestCancellation(
-          orderId,
-          'Cancelado no Rappidex pela alteração do status da entrega.',
-          merchantId,
-        );
+        try {
+          await this.ifoodOrdersService.requestCancellation(
+            orderId,
+            'Cancelado no Rappidex pela alteração do status da entrega.',
+            merchantId,
+          );
+        } catch (error: any) {
+          this.logger.warn(
+            `Falha ao solicitar cancelamento no iFood para delivery ${previousDelivery.id}. O cancelamento local seguirá normalmente. status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
+          );
+        }
+
         return {};
       }
 
