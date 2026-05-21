@@ -969,17 +969,11 @@ export class DeliveryService implements OnModuleInit {
     );
 
     if (ifoodLink) {
-      try {
-        await this.ifoodOrdersService.requestCancellation(
-          ifoodLink.ifoodOrderId,
-          'Cancelado no Rappidex pela exclusão da entrega.',
-          ifoodLink.merchantId,
-        );
-      } catch (error: any) {
-        this.logger.warn(
-          `Não foi possível solicitar cancelamento no iFood ao excluir delivery ${deliveryFinded.id}. status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
-        );
-      }
+      await this.ifoodOrdersService.requestCancellation(
+        ifoodLink.ifoodOrderId,
+        'Cancelado no Rappidex pela exclusão da entrega.',
+        ifoodLink.merchantId,
+      );
     }
 
     try {
