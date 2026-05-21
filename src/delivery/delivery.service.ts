@@ -887,6 +887,7 @@ export class DeliveryService implements OnModuleInit {
       where: {
         id: { $in: deliveryIds } as any,
         isActive: true,
+        status: { $in: [StatusDelivery.PENDING, StatusDelivery.ONCOURSE] } as any,
       } as any,
       relations: { establishment: true },
     });
@@ -924,7 +925,11 @@ export class DeliveryService implements OnModuleInit {
       removed += 1;
     }
 
-    return { checked: deliveries.length, removed };
+    return {
+      checked: deliveries.length,
+      removed,
+      criteria: 'Somente pedidos iFood em PENDENTE/ACAMINHO no Rappidex e CONCLUDED/CANCELLED no iFood.',
+    };
   }
 
   async deleteDelivery(deliveryId: string, user: UserRequest) {
