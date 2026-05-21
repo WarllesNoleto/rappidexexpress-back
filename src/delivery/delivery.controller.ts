@@ -135,6 +135,25 @@ export class DeliveryController {
     return await this.deliveryService.deleteDelivery(param.deliveryId, user);
   }
 
+
+  @Post('cleanup/ifood-stale')
+  @UseGuards(JwtAuthGuard)
+  async cleanupStaleIfoodDeliveries(
+    @User() user: UserRequest,
+    @Body() body: { companyId?: string },
+  ) {
+    if (!onlyForShopkeeperOrAdmin(user.type)) {
+      throw new UnauthorizedException(
+        'Você não tem permissão para esse recurso.',
+      );
+    }
+
+    return await this.deliveryService.cleanupStaleIfoodDeliveries(
+      user,
+      body?.companyId,
+    );
+  }
+
   @Put('/edit/configs')
   @ApiOperation({
     operationId: 'ConfigDelivery',

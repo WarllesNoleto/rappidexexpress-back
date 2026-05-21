@@ -479,6 +479,9 @@ export class IfoodOrdersService {
 
     const isDelivery = orderType === 'DELIVERY';
     const isMerchantDelivery = deliveredBy === 'MERCHANT';
+    const normalizedStatus = String(orderStatus || '').trim().toUpperCase();
+    const terminalStatuses = new Set(['CONCLUDED', 'CANCELLED']);
+    const isTerminalStatus = terminalStatuses.has(normalizedStatus);
 
     return {
       success: true,
@@ -488,14 +491,16 @@ export class IfoodOrdersService {
         orderType,
         deliveredBy,
         orderStatus,
+        isTerminalStatus,
         merchantId: order?.merchant?.id ?? null,
         merchantName: order?.merchant?.name ?? null,
         customerName: order?.customer?.name ?? null,
         customerPhone: order?.customer?.phone?.number ?? null,
       },
-      canCreateRappidexDelivery: isDelivery && isMerchantDelivery,
-      reason:
-        isDelivery && isMerchantDelivery
+      canCreateRappidexDelivery: isDelivery && isMerchantDelivery && !isTerminalStatus,
+      reason: isTerminalStatus
+        ? `Pedido já está finalizado no iFood com status ${normalizedStatus}.`
+        : isDelivery && isMerchantDelivery
           ? 'Pedido apto para virar entrega no Rappidex.'
           : 'Pedido não está apto para virar entrega no Rappidex.',
     };

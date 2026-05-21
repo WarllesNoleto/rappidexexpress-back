@@ -859,6 +859,74 @@ export class DeliveryService implements OnModuleInit {
     }
   }
 
+
+  async cleanupStaleIfoodDeliveries(user: UserRequest, companyIdFromAdmin?: string) {
+    const userFinded = await this.userRepository.findOneBy({ id: user.id });
+
+    if (!userFinded) {
+      throw new UnauthorizedException('Usuário não encontrado.');
+    }
+
+    const companyId =
+      userFinded.type === UserType.ADMIN
+        ? String(companyIdFromAdmin || '').trim() || null
+        : userFinded.id;
+
+    if (!companyId) {
+      throw new BadRequestException('Informe o companyId para limpeza em usuário admin.');
+    }
+
+    const links = await this.ifoodOrderLinkService.findByShopkeeperId(companyId);
+
+    if (links.length === 0) {
+      return { checked: 0, removed: 0, message: 'Nenhum pedido iFood vinculado encontrado.' };
+    }
+
+    const deliveryIds = links.map((link) => link.deliveryId).filter(Boolean);
+    const deliveries = await this.deliveryRepository.find({
+      where: {
+        id: { $in: deliveryIds } as any,
+        isActive: true,
+      } as any,
+      relations: { establishment: true },
+    });
+
+    let removed = 0;
+
+    for (const delivery of deliveries) {
+      const link = links.find((item) => item.deliveryId === delivery.id);
+      const orderId = String(link?.ifoodOrderId || '').trim();
+      const merchantId = String(link?.merchantId || '').trim();
+
+      if (!orderId) continue;
+
+      let shouldRemove = false;
+
+      try {
+        const order = await this.ifoodOrdersService.getOrderDetails(orderId, merchantId || undefined);
+        const status = String(order?.orderStatus || order?.status || order?.metadata?.status || '').trim().toUpperCase();
+        shouldRemove = status === 'CONCLUDED' || status === 'CANCELLED';
+      } catch (error: any) {
+        const status = Number(error?.response?.status || error?.status || 0);
+        shouldRemove = status === 404 || status === 410;
+      }
+
+      if (!shouldRemove) continue;
+
+      await this.deliveryRepository.save({
+        ...delivery,
+        status: StatusDelivery.CANCELED,
+        isActive: false,
+        updatedAt: addHours(new Date(), -3),
+      });
+
+      this.ordersGateway.emitDeliveryDeleted(delivery.id, delivery.establishment?.cityId);
+      removed += 1;
+    }
+
+    return { checked: deliveries.length, removed };
+  }
+
   async deleteDelivery(deliveryId: string, user: UserRequest) {
     const deliveryFinded = await this.deliveryRepository.findOne({
       where: {
