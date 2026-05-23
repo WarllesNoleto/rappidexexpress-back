@@ -204,7 +204,23 @@ export class DeliveryService implements OnModuleInit {
         const hasDeliveryDropCodeRequested =
           await this.ifoodEventService.hasDeliveryDropCodeRequested(orderId);
 
+        const usesExternalIfoodPdv = Boolean(
+          previousDelivery?.establishment?.usesExternalIfoodPdv,
+        );
+
         if (!hasDeliveryDropCodeRequested) {
+          const ifoodConclusionStatus = await this.getIfoodConclusionStatus(
+            orderId,
+            merchantId,
+          );
+
+          if (usesExternalIfoodPdv && ifoodConclusionStatus.isConcluded) {
+            this.logger.warn(
+              `ifood_sync action=finalizado_localmente_sem_drop_code loja="${previousDelivery?.establishment?.name || ''}" merchantId="${merchantId || ''}" usesExternalIfoodPdv=${usesExternalIfoodPdv} ifoodOrderId="${orderId}" displayId="${previousDelivery?.id || ''}" ifoodStatus="${ifoodConclusionStatus.status}" localStatusBefore="${previousDelivery.status}" localStatusAfter="${StatusDelivery.FINISHED}"`,
+            );
+            return {};
+          }
+
           throw new BadRequestException(
             'O pedido ainda não está elegível para validação do código no iFood (DELIVERY_DROP_CODE_REQUESTED).',
           );
