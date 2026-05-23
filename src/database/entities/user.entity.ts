@@ -60,6 +60,9 @@ export class UserEntity {
   @Column({ default: false })
   useIfoodIntegration: boolean;
 
+  @Column({ default: false })
+  usesExternalIfoodPdv: boolean;
+
   @Column({ nullable: true })
   ifoodMerchantId?: string;
 

@@ -71,6 +71,9 @@ export class UserService {
 
     const city = await this.resolveCity(data.cityId, requester);
     const useIfoodIntegration = Boolean(data.useIfoodIntegration);
+    const usesExternalIfoodPdv = useIfoodIntegration
+      ? Boolean(data.usesExternalIfoodPdv)
+      : false;
     const ifoodMerchantId = useIfoodIntegration
       ? (data.ifoodMerchantId?.trim() ?? '')
       : '';
@@ -83,6 +86,7 @@ export class UserService {
         phone,
         password: passHash,
         useIfoodIntegration,
+        usesExternalIfoodPdv,
         ifoodMerchantId,
         ifoodClientId: '',
         ifoodClientSecret: '',
@@ -189,6 +193,9 @@ export class UserService {
     try {
       const useIfoodIntegration =
         data.useIfoodIntegration ?? userToUpdate.useIfoodIntegration ?? false;
+      const usesExternalIfoodPdv = useIfoodIntegration
+        ? (data.usesExternalIfoodPdv ?? userToUpdate.usesExternalIfoodPdv ?? false)
+        : false;
 
       const ifoodMerchantId = useIfoodIntegration
         ? (data.ifoodMerchantId ?? userToUpdate.ifoodMerchantId ?? '').trim()
@@ -199,6 +206,7 @@ export class UserService {
         ...data,
         cityId,
         useIfoodIntegration,
+        usesExternalIfoodPdv,
         ifoodMerchantId,
         ifoodClientId: '',
         ifoodClientSecret: '',

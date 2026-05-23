@@ -228,14 +228,17 @@ export class DeliveryService implements OnModuleInit {
             merchantId,
           );
         } catch (error: any) {
+          const usesExternalIfoodPdv = Boolean(
+            previousDelivery?.establishment?.usesExternalIfoodPdv,
+          );
           const ifoodConclusionStatus = await this.getIfoodConclusionStatus(
             orderId,
             merchantId,
           );
 
-          if (ifoodConclusionStatus.isConcluded) {
+          if (usesExternalIfoodPdv && ifoodConclusionStatus.isConcluded) {
             this.logger.warn(
-              `Finalização local após falha na validação do código no iFood. DeliveryId: ${previousDelivery.id}. IfoodOrderId: ${orderId}. IfoodStatus: ${ifoodConclusionStatus.status}. Reason: pedido já concluído no iFood.`,
+              `ifood_sync action=finalizado_localmente loja="${previousDelivery?.establishment?.name || ''}" merchantId="${merchantId || ''}" usesExternalIfoodPdv=${usesExternalIfoodPdv} ifoodOrderId="${orderId}" displayId="${previousDelivery?.id || ''}" ifoodStatus="${ifoodConclusionStatus.status}" localStatusBefore="${previousDelivery.status}" localStatusAfter="${StatusDelivery.FINISHED}"`,
             );
             return {};
           }

@@ -49,6 +49,10 @@ export class CreateUserDto {
   @IsOptional()
   useIfoodIntegration?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  usesExternalIfoodPdv?: boolean;
+
   @IsString()
   @IsOptional()
   ifoodMerchantId?: string;

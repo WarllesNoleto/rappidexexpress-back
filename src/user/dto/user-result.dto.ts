@@ -43,6 +43,9 @@ export class UserResult {
   useIfoodIntegration: boolean;
 
   @Expose()
+  usesExternalIfoodPdv: boolean;
+
+  @Expose()
   ifoodMerchantId?: string;
 
   @Expose()
@@ -58,7 +61,10 @@ export class UserResult {
   ifoodOrdersAvailable: number;
 
   public static fromEntity(user: UserEntity) {
-    return plainToClass<UserResult, UserResult>(UserResult, user, {
+    return plainToClass<UserResult, UserResult>(UserResult, {
+      ...user,
+      usesExternalIfoodPdv: Boolean(user?.usesExternalIfoodPdv),
+    } as UserResult, {
       excludeExtraneousValues: true,
     });
   }
