@@ -215,7 +215,6 @@ describe('DeliveryService', () => {
           id: 'delivery-5',
           status: StatusDelivery.AWAITING_CODE,
           ifoodArrivedAtDestinationSynced: true,
-          establishment: { usesExternalIfoodPdv: true, name: 'Loja Teste' },
         },
         {},
         { status: StatusDelivery.FINISHED, deliveryCode: '6013' },
