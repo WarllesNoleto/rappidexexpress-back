@@ -1532,11 +1532,11 @@ export class DeliveryService implements OnModuleInit {
     if (queryParams.createdIn && queryParams.createdUntil) {
       const createdAtDateFilter = {
         $gte: new Date(queryParams.createdIn),
-        $lt: new Date(queryParams.createdUntil),
+        $lte: new Date(queryParams.createdUntil),
       };
       const createdAtStringFilter = {
         $gte: queryParams.createdIn,
-        $lt: queryParams.createdUntil,
+        $lte: queryParams.createdUntil,
       };
 
       // Garante compatibilidade: aceita registros Date (novos) e string (legados).
