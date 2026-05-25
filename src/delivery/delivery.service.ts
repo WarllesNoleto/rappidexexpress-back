@@ -490,6 +490,11 @@ export class DeliveryService implements OnModuleInit {
     const skip = (queryParams.page - 1) * queryParams.itemsPerPage;
     const take = queryParams.itemsPerPage;
     const where = this.buildDeliveriesWhere(userForRequest, queryParams);
+    this.logger.log(
+      `delivery_list userId=${userForRequest.id} userType=${userForRequest.type} userCityId=${userForRequest.cityId} filters=${JSON.stringify(
+        queryParams,
+      )} where=${JSON.stringify(where)}`,
+    );
 
     const shouldIncludeDashboardCounts = this.parseBooleanQuery(
       queryParams.includeDashboardCounts,
@@ -889,6 +894,12 @@ export class DeliveryService implements OnModuleInit {
       establishment = userFinded;
     }
 
+    if (!establishment?.cityId) {
+      throw new BadRequestException(
+        'Estabelecimento sem cidade configurada. Verifique cityId/cityName.',
+      );
+    }
+
     if (
       (userFinded.type === UserType.ADMIN ||
         userFinded.type === UserType.SUPERADMIN ||
@@ -932,6 +943,9 @@ export class DeliveryService implements OnModuleInit {
       this.ordersGateway.emitDeliveryCreated(
         DeliveryResult.fromEntity(newDelivery),
         newDelivery.establishment?.cityId,
+      );
+      this.logger.log(
+        `delivery_created id=${newDelivery.id} status=${newDelivery.status} cityId=${newDelivery.establishment?.cityId} cityName=${newDelivery.establishment?.cityName ?? ''} createdBy=${newDelivery.createdBy}`,
       );
       
       this.notifyNewDeliveryInBackground(
@@ -1486,7 +1500,11 @@ export class DeliveryService implements OnModuleInit {
       isActive: includeCanceled ? { $in: [true, false] } : true,
     };
 
-    where['establishment.cityId'] = userForRequest.cityId;
+    if (userForRequest.type !== UserType.SUPERADMIN) {
+      where['establishment.cityId'] = userForRequest.cityId;
+    } else if (userForRequest.cityId) {
+      where['establishment.cityId'] = userForRequest.cityId;
+    }
 
     if (
       userForRequest.type === UserType.ADMIN ||
