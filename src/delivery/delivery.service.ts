@@ -517,13 +517,20 @@ export class DeliveryService implements OnModuleInit {
     const ifoodLinks = await this.ifoodOrderLinkService.findByDeliveryIds(
       deliveries.map((delivery) => delivery.id),
     );
-    const ifoodDeliveryIds = new Set(
-      ifoodLinks.map((ifoodLink) => ifoodLink.deliveryId),
+    const ifoodLinkByDeliveryId = new Map(
+      ifoodLinks.map((link) => [link.deliveryId, link]),
     );
-    const deliveriesWithSource = deliveries.map((delivery) => ({
-      ...delivery,
-      isIfoodOrder: ifoodDeliveryIds.has(delivery.id),
-    }));
+    const deliveriesWithSource = deliveries.map((delivery) => {
+      const ifoodLink = ifoodLinkByDeliveryId.get(delivery.id);
+
+      return {
+        ...delivery,
+        isIfoodOrder: Boolean(ifoodLink),
+        ifoodOrderId: ifoodLink?.ifoodOrderId ?? null,
+        ifoodDisplayId: ifoodLink?.ifoodDisplayId ?? null,
+        ifoodMerchantId: ifoodLink?.merchantId ?? null,
+      };
+    });
 
     return ListDeliverysResult.fromEntities(
       deliveriesWithSource as any,
