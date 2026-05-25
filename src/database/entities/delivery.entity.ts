@@ -39,6 +39,9 @@ export class DeliveryEntity {
   @Column()
   observation: string;
 
+  @Column({ default: false })
+  destinationObservationConfirmed?: boolean;
+
   @Column()
   soda: string;
 

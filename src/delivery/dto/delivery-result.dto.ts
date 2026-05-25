@@ -61,6 +61,9 @@ export class DeliveryResult {
   observation: string;
 
   @Expose()
+  destinationObservationConfirmed?: boolean;
+
+  @Expose()
   payment: PaymentType;
 
   @Expose()
