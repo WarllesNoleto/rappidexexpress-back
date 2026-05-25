@@ -1341,6 +1341,7 @@ export class DeliveryService implements OnModuleInit {
       motoboy: data.motoboy ?? null,
       value: data.value,
       observation: data.observation,
+      destinationObservation: data.destinationObservation ?? null,
       destinationObservationConfirmed:
         data.destinationObservationConfirmed ?? false,
       soda: data.soda,

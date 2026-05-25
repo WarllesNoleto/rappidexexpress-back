@@ -70,6 +70,9 @@ export class DeliveryEntity {
   @Column()
   observation: string;
 
+  @Column({ nullable: true })
+  destinationObservation?: string;
+
   @Column({ default: false })
   destinationObservationConfirmed?: boolean;
 

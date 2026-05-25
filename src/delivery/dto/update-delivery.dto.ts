@@ -41,6 +41,10 @@ export class UpdateDeliveryDto {
   @IsOptional()
   observation?: string;
 
+  @IsString()
+  @IsOptional()
+  destinationObservation?: string;
+
   @IsBoolean()
   @IsOptional()
   destinationObservationConfirmed?: boolean;

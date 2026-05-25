@@ -92,6 +92,9 @@ export class DeliveryResult {
   observation: string;
 
   @Expose()
+  destinationObservation?: string;
+
+  @Expose()
   destinationObservationConfirmed?: boolean;
 
   @Expose()
