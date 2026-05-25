@@ -561,19 +561,18 @@ export class IfoodOrdersService {
       order?.payments?.prepaid ??
       0;
 
-    const deliveryAddress = [
-      order?.delivery?.deliveryAddress?.streetName,
-      order?.delivery?.deliveryAddress?.streetNumber,
-      order?.delivery?.deliveryAddress?.neighborhood,
-      order?.delivery?.deliveryAddress?.city,
-    ]
-      .filter(Boolean)
-      .join(', ');
-    const deliveryLocationLink = this.buildIfoodDeliveryLocationLink(order);
+    const fullAddressData = this.buildIfoodFullAddress(order);
+    const deliveryAddress = fullAddressData.clientAddress || fullAddressData.fullAddress;
+    const deliveryLocationLink =
+      fullAddressData.addressMapsUrl || this.buildIfoodDeliveryLocationLink(order);
+
+    this.logger.log(
+      `ifood_address_import orderId=${orderId} displayId=${displayId} complete=${Boolean(fullAddressData.fullAddress && fullAddressData.clientAddress)}`,
+    );
 
     const observation = [
       `Pedido iFood #${displayId}`,
-      deliveryAddress ? `Endereço: ${deliveryAddress}` : null,
+      fullAddressData.fullAddress ? `Endereço: ${fullAddressData.fullAddress}` : null,
       deliveryLocationLink ? `Localização: ${deliveryLocationLink}` : null,
       localizer ? `Localizador: ${localizer}` : null,
       order?.delivery?.observations
@@ -590,12 +589,64 @@ export class IfoodOrdersService {
       clientName: customerName,
       clientPhone: customerPhone,
       clientLocation: deliveryLocationLink ?? undefined,
+      clientAddress: fullAddressData.clientAddress ?? undefined,
+      addressComplement: fullAddressData.addressComplement ?? undefined,
+      addressReference: fullAddressData.addressReference ?? undefined,
+      addressNeighborhood: fullAddressData.addressNeighborhood ?? undefined,
+      addressCity: fullAddressData.addressCity ?? undefined,
+      addressState: fullAddressData.addressState ?? undefined,
+      addressZipCode: fullAddressData.addressZipCode ?? undefined,
+      addressLatitude: fullAddressData.addressLatitude ?? undefined,
+      addressLongitude: fullAddressData.addressLongitude ?? undefined,
+      addressMapsUrl: fullAddressData.addressMapsUrl ?? undefined,
       status: StatusDelivery.PENDING,
       establishmentId,
       value: String(totalValue),
       payment: this.resolvePaymentType(order),
       soda: 'NÃO',
       observation,
+    };
+  }
+
+
+  private buildIfoodFullAddress(order: any) {
+    const addr = order?.delivery?.deliveryAddress || {};
+
+    const streetLine =
+      addr.formattedAddress ||
+      [addr.streetName, addr.streetNumber].filter(Boolean).join(', ');
+
+    const cityLine = [addr.city, addr.state].filter(Boolean).join('/');
+
+    const lines = [
+      streetLine,
+      addr.neighborhood ? `Bairro: ${addr.neighborhood}` : null,
+      cityLine || null,
+      addr.complement ? `Complemento: ${addr.complement}` : null,
+      addr.reference ? `Referência: ${addr.reference}` : null,
+      addr.postalCode ? `CEP: ${addr.postalCode}` : null,
+    ].filter(Boolean);
+
+    const latitude = Number(addr?.coordinates?.latitude);
+    const longitude = Number(addr?.coordinates?.longitude);
+    const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+
+    const mapsUrl = hasCoordinates
+      ? `https://www.google.com/maps?q=${latitude},${longitude}`
+      : this.buildGoogleMapsLinkByAddress(streetLine || cityLine || null);
+
+    return {
+      clientAddress: lines.join(", ") || streetLine || null,
+      addressComplement: addr?.complement || null,
+      addressReference: addr?.reference || null,
+      addressNeighborhood: addr?.neighborhood || null,
+      addressCity: addr?.city || null,
+      addressState: addr?.state || null,
+      addressZipCode: addr?.postalCode || null,
+      addressLatitude: hasCoordinates ? latitude : null,
+      addressLongitude: hasCoordinates ? longitude : null,
+      addressMapsUrl: mapsUrl,
+      fullAddress: lines.join(' | '),
     };
   }
 

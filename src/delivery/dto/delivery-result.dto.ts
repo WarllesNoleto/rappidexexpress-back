@@ -18,6 +18,37 @@ export class DeliveryResult {
   @Expose()
   clientLocation?: string;
 
+
+  @Expose()
+  clientAddress?: string;
+
+  @Expose()
+  addressComplement?: string;
+
+  @Expose()
+  addressReference?: string;
+
+  @Expose()
+  addressNeighborhood?: string;
+
+  @Expose()
+  addressCity?: string;
+
+  @Expose()
+  addressState?: string;
+
+  @Expose()
+  addressZipCode?: string;
+
+  @Expose()
+  addressLatitude?: number;
+
+  @Expose()
+  addressLongitude?: number;
+
+  @Expose()
+  addressMapsUrl?: string;
+
   @Expose()
   status: StatusDelivery;
 

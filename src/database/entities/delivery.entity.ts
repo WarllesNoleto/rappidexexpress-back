@@ -24,6 +24,37 @@ export class DeliveryEntity {
   @Column({ nullable: true })
   clientLocation?: string;
 
+
+  @Column({ nullable: true })
+  clientAddress?: string;
+
+  @Column({ nullable: true })
+  addressComplement?: string;
+
+  @Column({ nullable: true })
+  addressReference?: string;
+
+  @Column({ nullable: true })
+  addressNeighborhood?: string;
+
+  @Column({ nullable: true })
+  addressCity?: string;
+
+  @Column({ nullable: true })
+  addressState?: string;
+
+  @Column({ nullable: true })
+  addressZipCode?: string;
+
+  @Column({ nullable: true })
+  addressLatitude?: number;
+
+  @Column({ nullable: true })
+  addressLongitude?: number;
+
+  @Column({ nullable: true })
+  addressMapsUrl?: string;
+
   @Column({ type: 'enum', enum: StatusDelivery })
   status: StatusDelivery;
 
