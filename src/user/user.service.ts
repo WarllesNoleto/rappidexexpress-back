@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { MongoRepository } from 'typeorm';
@@ -26,6 +27,7 @@ import {
 import { StatusDelivery, UserType } from '../shared/constants/enums.constants';
 import { UserRequest } from '../shared/interfaces';
 import { addHours } from 'date-fns';
+import { IfoodImportService } from '../ifood/ifood-import.service';
 
 type MotoboyDeliverySummary = {
   name: string;
@@ -35,6 +37,7 @@ type MotoboyDeliverySummary = {
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: MongoRepository<UserEntity>,
@@ -44,6 +47,7 @@ export class UserService {
     private readonly logRepository: MongoRepository<LogEntity>,
     @InjectRepository(CityEntity)
     private readonly cityRepository: MongoRepository<CityEntity>,
+    private readonly ifoodImportService: IfoodImportService,
   ) {}
 
   async createUser(
@@ -97,6 +101,14 @@ export class UserService {
         createdAt: addHours(new Date(), -3),
         updatedAt: addHours(new Date(), -3),
       });
+
+      this.triggerIfoodInitialSync(newUser, {
+        useIfoodIntegrationChanged: true,
+        ifoodMerchantIdChanged: true,
+        isActiveChanged: true,
+        usesExternalIfoodPdvChanged: true,
+      });
+
       return UserResult.fromEntity(newUser);
     } catch (error) {
       throw error;
@@ -218,10 +230,71 @@ export class UserService {
           data.ifoodOrdersAvailable ?? userToUpdate.ifoodOrdersAvailable ?? 0,
         updatedAt: addHours(new Date(), -3),
       });
+
+      this.triggerIfoodInitialSync(changedUser, {
+        useIfoodIntegrationChanged:
+          useIfoodIntegration !== Boolean(userToUpdate.useIfoodIntegration),
+        ifoodMerchantIdChanged:
+          ifoodMerchantId !== String(userToUpdate.ifoodMerchantId || '').trim(),
+        isActiveChanged:
+          Boolean(changedUser.isActive) !== Boolean(userToUpdate.isActive),
+        usesExternalIfoodPdvChanged:
+          usesExternalIfoodPdv !== Boolean(userToUpdate.usesExternalIfoodPdv),
+      });
+
       return UserResult.fromEntity(changedUser);
     } catch (error) {
       throw error;
     }
+  }
+
+  private triggerIfoodInitialSync(
+    company: UserEntity,
+    changes: {
+      useIfoodIntegrationChanged: boolean;
+      ifoodMerchantIdChanged: boolean;
+      isActiveChanged: boolean;
+      usesExternalIfoodPdvChanged: boolean;
+    },
+  ) {
+    const hasRelevantChange =
+      changes.useIfoodIntegrationChanged ||
+      changes.ifoodMerchantIdChanged ||
+      changes.isActiveChanged ||
+      changes.usesExternalIfoodPdvChanged;
+
+    if (!hasRelevantChange) {
+      return;
+    }
+
+    if (
+      !company.useIfoodIntegration ||
+      !company.isActive ||
+      !String(company.ifoodMerchantId || '').trim()
+    ) {
+      return;
+    }
+
+    this.ifoodImportService
+      .retryPendingImportsForCompany(company.id)
+      .then(() =>
+        this.logger.log(
+          `ifood_initial_sync_triggered companyId=${company.id} merchant=${this.maskMerchantId(company.ifoodMerchantId)}`,
+        ),
+      )
+      .catch((error) =>
+        this.logger.error(
+          `ifood_initial_sync_failed companyId=${company.id} merchant=${this.maskMerchantId(company.ifoodMerchantId)} error=${error?.message || error}`,
+        ),
+      );
+  }
+
+  private maskMerchantId(merchantId?: string) {
+    const normalized = String(merchantId || '').trim();
+    if (!normalized) {
+      return 'n/a';
+    }
+    return `***${normalized.slice(-4)}`;
   }
 
   private ensureCityAccess(requester: UserEntity, resourceCityId: string) {
