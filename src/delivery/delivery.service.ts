@@ -545,9 +545,7 @@ export class DeliveryService implements OnModuleInit {
       status: StatusDelivery.PENDING,
     } as ListDeliveriesQueryDTO);
 
-    const assignedWhere = this.buildDeliveriesWhere(userForRequest, {
-      status: `${StatusDelivery.ONCOURSE},${StatusDelivery.ARRIVED_AT_STORE},${StatusDelivery.COLLECTED},${StatusDelivery.ARRIVED_AT_DESTINATION},${StatusDelivery.AWAITING_CODE}`,
-    } as ListDeliveriesQueryDTO);
+    const assignedWhere = this.buildAssignedDeliveriesWhere(userForRequest);
 
     const [pending, assigned] = await Promise.all([
       this.deliveryRepository.count(pendingWhere),
@@ -558,6 +556,36 @@ export class DeliveryService implements OnModuleInit {
       pending,
       assigned,
     };
+  }
+
+
+  private buildAssignedDeliveriesWhere(userForRequest: UserEntity) {
+    const where: Record<string, any> = {
+      isActive: true,
+      motoboy: { $ne: null },
+      status: {
+        $nin: [StatusDelivery.FINISHED, StatusDelivery.CANCELED],
+      },
+    };
+
+    if (userForRequest.type !== UserType.SUPERADMIN) {
+      where['establishment.cityId'] = userForRequest.cityId;
+    } else if (userForRequest.cityId) {
+      where['establishment.cityId'] = userForRequest.cityId;
+    }
+
+    if (userForRequest.type === UserType.MOTOBOY) {
+      where['motoboy.id'] = userForRequest.id;
+    }
+
+    if (
+      userForRequest.type === UserType.SHOPKEEPER ||
+      userForRequest.type === UserType.SHOPKEEPERADMIN
+    ) {
+      where['establishment.id'] = userForRequest.id;
+    }
+
+    return where;
   }
 
   private parseBooleanQuery(value?: boolean | string) {
