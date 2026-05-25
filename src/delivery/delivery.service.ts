@@ -625,6 +625,46 @@ export class DeliveryService implements OnModuleInit {
       deliveryFinded.establishment?.cityId ?? userFinded.cityId,
     );
 
+    const isOnlyDestinationObservationUpdate =
+      !deliveryData.status &&
+      !deliveryData.motoboyId &&
+      !deliveryData.establishmentId &&
+      typeof deliveryData.destinationObservation === 'string' &&
+      Object.keys(deliveryData).every((key) =>
+        ['destinationObservation', 'destinationObservationConfirmed'].includes(key),
+      );
+
+    if (isOnlyDestinationObservationUpdate) {
+      if (
+        userFinded.type === UserType.MOTOBOY &&
+        deliveryFinded.motoboy != null &&
+        deliveryFinded.motoboy.id !== userFinded.id
+      ) {
+        throw new BadRequestException(
+          'Essa entrega já foi atribuída a outro entregador.',
+        );
+      }
+
+      const deliveryUpdated = await this.deliveryRepository.save(
+        this.buildPersistableDelivery({
+          ...deliveryFinded,
+          destinationObservation: deliveryData.destinationObservation,
+          destinationObservationConfirmed:
+            deliveryData.destinationObservationConfirmed ??
+            deliveryFinded.destinationObservationConfirmed,
+          updatedAt: addHours(new Date(), -3),
+        }),
+      );
+
+      this.ordersGateway.emitDeliveryUpdated(
+        DeliveryResult.fromEntity(deliveryUpdated),
+        deliveryUpdated.establishment?.cityId ??
+          deliveryFinded.establishment?.cityId,
+      );
+
+      return DeliveryResult.fromEntity(deliveryUpdated);
+    }
+
     let establishmentFinded;
     let motoboyFinded;
 
