@@ -629,6 +629,7 @@ export class DeliveryService implements OnModuleInit {
         ifoodOrderId: ifoodLink?.ifoodOrderId ?? null,
         ifoodDisplayId: ifoodLink?.ifoodDisplayId ?? null,
         ifoodMerchantId: ifoodLink?.merchantId ?? null,
+        ifoodMerchantName: ifoodLink?.merchantName ?? null,
       };
     });
 

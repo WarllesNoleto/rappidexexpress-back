@@ -2,6 +2,13 @@ import { ObjectId } from 'mongodb';
 import { Column, Entity, Index, ObjectIdColumn } from 'typeorm';
 import { Permissions, UserType } from '../../shared/constants/enums.constants';
 
+export type IfoodMerchantConfig = {
+  merchantId: string;
+  name: string;
+  enabled: boolean;
+  pickupAddress?: string;
+};
+
 @Entity()
 export class UserEntity {
   @ObjectIdColumn()
@@ -65,6 +72,9 @@ export class UserEntity {
 
   @Column({ nullable: true })
   ifoodMerchantId?: string;
+
+  @Column({ nullable: true })
+  ifoodMerchants?: IfoodMerchantConfig[];
 
   @Column({ nullable: true })
   ifoodClientId?: string;

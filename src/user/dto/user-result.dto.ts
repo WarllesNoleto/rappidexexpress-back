@@ -47,6 +47,13 @@ export class UserResult {
 
   @Expose()
   ifoodMerchantId?: string;
+  @Expose()
+  ifoodMerchants?: Array<{
+    merchantId: string;
+    name: string;
+    enabled: boolean;
+    pickupAddress?: string;
+  }>;
 
   @Expose()
   ifoodClientId?: string;
