@@ -58,7 +58,12 @@ export class DeliveryService implements OnModuleInit {
   private async syncIfoodOnCourseIfNeeded(
     previousDelivery: DeliveryEntity,
     nextDelivery: DeliveryEntity,
+    orderId?: string,
+    merchantId?: string,
   ) {
+    void orderId;
+    void merchantId;
+
     return this.syncIfoodIfNeeded(previousDelivery, nextDelivery, {
       status: StatusDelivery.ONCOURSE,
     } as UpdateDeliveryDto);
@@ -736,13 +741,24 @@ export class DeliveryService implements OnModuleInit {
 
     let changedDelivery: Record<string, any> = {};
 
-    if (
+    const isAdminUser =
       userFinded.type === UserType.ADMIN ||
-      userFinded.type === UserType.SUPERADMIN
-    ) {
+      userFinded.type === UserType.SUPERADMIN;
+
+    const isShopkeeperUser =
+      userFinded.type === UserType.SHOPKEEPER ||
+      userFinded.type === UserType.SHOPKEEPERADMIN;
+
+    if (isAdminUser || isShopkeeperUser) {
       changedDelivery = { ...deliveryFinded, ...deliveryData };
 
       if (deliveryData.establishmentId) {
+        if (!isAdminUser) {
+          throw new UnauthorizedException(
+            'Você não tem permissão para alterar o estabelecimento da entrega.',
+          );
+        }
+
         establishmentFinded = await this.findOneUserById(
           deliveryData.establishmentId,
         );
@@ -751,12 +767,13 @@ export class DeliveryService implements OnModuleInit {
 
       if (normalizedMotoboyId) {
         motoboyFinded = await this.findOneUserById(normalizedMotoboyId);
+
+        if (motoboyFinded.type !== UserType.MOTOBOY) {
+          throw new BadRequestException('Usuário selecionado não é motoboy.');
+        }
+
         this.ensureCityAccess(userFinded, motoboyFinded.cityId);
       }
-    }
-
-    if (userFinded.type === UserType.SHOPKEEPER) {
-      changedDelivery = { ...deliveryFinded, ...deliveryData };
     }
 
     if (userFinded.type === UserType.MOTOBOY) {
@@ -865,6 +882,12 @@ export class DeliveryService implements OnModuleInit {
       } else if (deliveryData.status === StatusDelivery.FINISHED) {
         changedDelivery['finishedAt'] = dateForUse;
       }
+    }
+
+    if (!Object.keys(changedDelivery).length) {
+      throw new UnauthorizedException(
+        'Você não tem permissão para atualizar esta entrega.',
+      );
     }
 
     if (this.isObservationOnlyUpdate(deliveryData)) {
@@ -1577,6 +1600,8 @@ export class DeliveryService implements OnModuleInit {
         const syncFlags = await this.syncIfoodOnCourseIfNeeded(
           delivery,
           updated,
+          ifoodLink.ifoodOrderId,
+          ifoodLink.merchantId,
         );
 
         if (Object.keys(syncFlags).length > 0) {
@@ -1663,7 +1688,19 @@ export class DeliveryService implements OnModuleInit {
     deliveryId: string,
     data: Record<string, any>,
   ) {
-    const persistable = this.buildPersistableDelivery(data);
+    const currentDelivery = await this.deliveryRepository.findOneByOrFail({
+      id: deliveryId,
+    });
+
+    const sanitizedData = Object.fromEntries(
+      Object.entries(data || {}).filter(([, value]) => value !== undefined),
+    );
+
+    const persistable = this.buildPersistableDelivery({
+      ...currentDelivery,
+      ...sanitizedData,
+    });
+
     const { internalId, id, ...setPayload } = persistable;
 
     void internalId;
@@ -1813,6 +1850,11 @@ export class DeliveryService implements OnModuleInit {
       updatedAt: dateForUse,
     });
 
+    const { internalId, id, ...claimPayload } = deliveryToPersist;
+
+    void internalId;
+    void id;
+
     const claimResult = await this.deliveryRepository.updateOne(
       {
         id: deliveryFinded.id,
@@ -1821,7 +1863,7 @@ export class DeliveryService implements OnModuleInit {
         $or: [{ motoboy: null }, { motoboy: { $exists: false } }],
       } as any,
       {
-        $set: deliveryToPersist,
+        $set: claimPayload,
       } as any,
     );
 
