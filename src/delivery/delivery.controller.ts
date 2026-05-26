@@ -30,6 +30,7 @@ import {
   ListDeliveriesQueryDTO,
   ListDeliverysResult,
   UpdateDeliveryDto,
+  ReleaseDeliveryDto,
 } from './dto';
 
 @Controller('delivery')
@@ -80,6 +81,16 @@ export class DeliveryController {
       data,
       user,
     );
+  }
+
+  @Put(':deliveryId/release')
+  @UseGuards(JwtAuthGuard)
+  async releaseDelivery(
+    @Param() param: DeliveryParamsDto,
+    @User() user: UserRequest,
+    @Body() data: ReleaseDeliveryDto,
+  ) {
+    return await this.deliveryService.releaseDelivery(param.deliveryId, user, data);
   }
 
   @Get()
