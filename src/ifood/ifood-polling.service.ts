@@ -304,7 +304,6 @@ export class IfoodPollingService {
       where: {
         useIfoodIntegration: true,
         isActive: true,
-        ifoodMerchantId: { $nin: [null, ''] },
       } as any,
     });
 
