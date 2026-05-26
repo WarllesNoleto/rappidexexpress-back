@@ -868,11 +868,12 @@ export class DeliveryService implements OnModuleInit {
     }
 
     if (this.isObservationOnlyUpdate(deliveryData)) {
-      const deliveryUpdated = await this.deliveryRepository.save(
-        this.buildPersistableDelivery({
+      const deliveryUpdated = await this.persistDeliveryUpdate(
+        deliveryFinded.id,
+        {
           ...changedDelivery,
           updatedAt: addHours(new Date(), -3),
-        }),
+        },
       );
 
       this.ordersGateway.emitDeliveryUpdated(
@@ -952,12 +953,13 @@ export class DeliveryService implements OnModuleInit {
       }
 
       try {
-        deliveryUpdated = await this.deliveryRepository.save(
-          this.buildPersistableDelivery({
+        deliveryUpdated = await this.persistDeliveryUpdate(
+          deliveryFinded.id,
+          {
             ...changedDelivery,
             ...ifoodSyncFlags,
             updatedAt: addHours(new Date(), -3),
-          }),
+          },
         );
       } catch (error: any) {
         this.logger.error(
@@ -1583,10 +1585,10 @@ export class DeliveryService implements OnModuleInit {
         }
       } catch (error: any) {
         this.logger.error(
-          `Falha ao sincronizar ACAMINHO no iFood durante liberação da entrega ${delivery.id}. Verifique assignDriver/goingToOrigin. status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
+          `Falha ao sincronizar ACAMINHO no iFood durante liberação da entrega ${delivery.id}. orderId=${ifoodLink.ifoodOrderId} merchantId=${ifoodLink.merchantId} status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
           error?.stack || error,
         );
-        throw error;
+        // não bloquear liberação local por falha externa do iFood
       }
     }
 
@@ -1647,11 +1649,38 @@ export class DeliveryService implements OnModuleInit {
     delivery: DeliveryEntity,
     deliveryData: UpdateDeliveryDto,
   ) {
+    const requestedMotoboyId = this.normalizeMotoboyId(deliveryData.motoboyId);
+
     return (
       delivery.status === StatusDelivery.PENDING &&
-      deliveryData.status === StatusDelivery.ONCOURSE &&
-      !!this.normalizeMotoboyId(deliveryData.motoboyId)
+      !!requestedMotoboyId &&
+      (!deliveryData.status || deliveryData.status === StatusDelivery.ONCOURSE)
     );
+  }
+
+
+  private async persistDeliveryUpdate(
+    deliveryId: string,
+    data: Record<string, any>,
+  ) {
+    const persistable = this.buildPersistableDelivery(data);
+    const { internalId, id, ...setPayload } = persistable;
+
+    void internalId;
+    void id;
+
+    const result = await this.deliveryRepository.updateOne(
+      { id: deliveryId } as any,
+      { $set: setPayload } as any,
+    );
+
+    if (!result?.matchedCount) {
+      throw new BadRequestException('Entrega não encontrada.');
+    }
+
+    return await this.deliveryRepository.findOneByOrFail({
+      id: deliveryId,
+    });
   }
 
   private buildPersistableDelivery(data: Record<string, any>) {
