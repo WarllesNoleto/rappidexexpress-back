@@ -149,11 +149,7 @@ export class IfoodAutoPollingService
         `Eventos pendentes de ACK neste ciclo: ${pendingAckEvents.length}`,
       );
       const eligibleEvents = freshEvents.filter(
-        (event) =>
-          ['CONFIRMED','ORDER_CONFIRMED','PREPARATION_STARTED','SEPARATION_STARTED'].includes(String(event?.code||'').toUpperCase()) ||
-          ['CONFIRMED','ORDER_CONFIRMED','PREPARATION_STARTED','SEPARATION_STARTED'].includes(String(event?.fullCode||'').toUpperCase()) ||
-          event?.code === 'DSP' ||
-          event?.fullCode === 'DISPATCHED',
+        (event) => this.ifoodImportService.isEligibleImportEvent(event),
       );
 
       if (polledAckTargets.length > 0) {
@@ -216,6 +212,9 @@ export class IfoodAutoPollingService
       }
 
       for (const event of cancellationEvents) {
+        this.logger.log(
+          `iFood: pedido ignorado porque está cancelado | merchantId=${event?.merchantId ?? 'n/a'} orderId=${event?.orderId ?? 'n/a'} code=${event?.code ?? ''} fullCode=${event?.fullCode ?? ''}`,
+        );
         await this.deliveryService.cancelDeliveryFromIfood(
           event.orderId,
           event,
@@ -237,12 +236,23 @@ export class IfoodAutoPollingService
       }
 
       if (freshEvents.length > 0) {
+        for (const event of eligibleEvents) {
+          this.logger.log(
+            `iFood: evento recebido para merchant ativo | merchantId=${event?.merchantId ?? 'n/a'} orderId=${event?.orderId ?? 'n/a'} code=${event?.code ?? ''} fullCode=${event?.fullCode ?? ''}`,
+          );
+        }
+        if (eligibleEvents.length > 0) {
+          this.logger.log(
+            `iFood: tentando importar pedido | total=${eligibleEvents.length}`,
+          );
+        }
         await this.ifoodImportService.importFromEvents(freshEvents);
 
         for (const event of freshEvents) {
           await this.ifoodEventService.markAsProcessed(event, true);
         }
       }
+      await this.ifoodImportService.retryPendingImportsForActiveMerchants(150);
 
       const uniqueMerchants = Array.from(
         new Set(

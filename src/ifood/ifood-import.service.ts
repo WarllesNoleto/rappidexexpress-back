@@ -9,10 +9,14 @@ import { IfoodReadinessService } from './ifood-readiness.service';
 export class IfoodImportService {
   private readonly logger = new Logger(IfoodImportService.name);
   private static readonly IFOOD_IMPORT_EVENT_CODES = new Set([
+    'CFM',
     'CONFIRMED',
-    'ORDER_CONFIRMED',
-    'PREPARATION_STARTED',
-    'SEPARATION_STARTED',
+    'PLC',
+    'PLACED',
+    'DSP',
+    'DISPATCHED',
+    'RTP',
+    'READY_TO_PICKUP',
   ]);
 
   constructor(
@@ -31,16 +35,7 @@ export class IfoodImportService {
       return;
     }
 
-    const eligibleEvents = events.filter((event) => {
-      const code = String(event?.code || '').toUpperCase();
-      const fullCode = String(event?.fullCode || '').toUpperCase();
-      return (
-        IfoodImportService.IFOOD_IMPORT_EVENT_CODES.has(code) ||
-        IfoodImportService.IFOOD_IMPORT_EVENT_CODES.has(fullCode) ||
-        code === 'DSP' ||
-        fullCode === 'DISPATCHED'
-      );
-    });
+    const eligibleEvents = events.filter((event) => this.isEligibleImportEvent(event));
 
     if (eligibleEvents.length === 0) {
       this.logger.log(
@@ -67,7 +62,7 @@ export class IfoodImportService {
         );
 
         if (existingLink) {
-          this.logger.log(`ifood_event action=duplicate_ignored orderId=${orderId}`);
+          this.logger.log(`iFood: pedido ignorado porque já existe vínculo | merchantId=${merchantId ?? 'n/a'} orderId=${orderId}`);
           continue;
         }
 
@@ -82,7 +77,7 @@ export class IfoodImportService {
 
         if (!readiness?.canCreateRappidexDelivery) {
           this.logger.warn(
-            `Importação automática: pedido ${orderId} ignorado. Motivo: ${readiness?.reason}`,
+            `iFood: pedido não importado | merchantId=${merchantId ?? 'n/a'} orderId=${orderId} code=${eventReference?.code ?? ''} fullCode=${eventReference?.fullCode ?? ''} motivo=${readiness?.reason}`,
           );
           continue;
         }
@@ -98,7 +93,7 @@ export class IfoodImportService {
 
         if (!targetShopkeeperId) {
           this.logger.error(
-            `Importação automática: nenhum lojista configurado para o merchantId ${order?.merchant?.id ?? '(vazio)'}.`,
+            `iFood: loja não encontrada para merchantId | merchantId=${order?.merchant?.id ?? merchantId ?? '(vazio)'} orderId=${orderId}`,
           );
           continue;
         }
@@ -123,7 +118,7 @@ export class IfoodImportService {
         );
 
         this.logger.log(
-          `ifood_import_created orderId=${orderId} deliveryId=${createdDelivery.id} shopkeeperId=${targetShopkeeperId}`,
+          `iFood: pedido importado e entrega criada | merchantId=${order?.merchant?.id ?? merchantId ?? 'n/a'} orderId=${orderId} deliveryId=${createdDelivery.id} shopkeeperId=${targetShopkeeperId}`,
         );
 
         await this.ifoodOrderLinkService.createLink({
@@ -135,10 +130,10 @@ export class IfoodImportService {
           shopkeeperId: targetShopkeeperId,
         });
 
-        this.logger.log(`ifood_event action=imported orderId=${orderId} displayId=${order?.displayId ?? ''}`);
+        this.logger.log(`iFood: vínculo criado com sucesso | merchantId=${order?.merchant?.id ?? merchantId ?? 'n/a'} orderId=${orderId} displayId=${order?.displayId ?? ''}`);
       } catch (error: any) {
         this.logger.error(
-          `Importação automática: erro ao processar pedido ${orderId}: ${error?.message || error}`,
+          `iFood: erro ao buscar detalhes do pedido | merchantId=${merchantId ?? 'n/a'} orderId=${orderId} code=${eventReference?.code ?? ''} fullCode=${eventReference?.fullCode ?? ''} erro=${error?.message || error}`,
         );
       }
     }
@@ -193,5 +188,37 @@ export class IfoodImportService {
     );
 
     await this.importFromEvents(filteredEvents);
+  }
+
+  async retryPendingImportsForActiveMerchants(limit = 300) {
+    const recentEvents =
+      await this.ifoodEventService.findRecentEligibleImportEvents(limit);
+    if (recentEvents.length === 0) {
+      return;
+    }
+
+    const replayCandidates = recentEvents.map((event) => ({
+      id: event.eventId,
+      orderId: event.orderId,
+      merchantId: event.merchantId,
+      code: event.code,
+      fullCode: event.fullCode,
+      salesChannel: event.salesChannel,
+      createdAt: event.createdAt,
+    }));
+
+    this.logger.log(
+      `iFood: tentando importar pedido(s) recentes pendentes | total=${replayCandidates.length}`,
+    );
+    await this.importFromEvents(replayCandidates);
+  }
+
+  isEligibleImportEvent(event: any) {
+    const code = String(event?.code || '').toUpperCase();
+    const fullCode = String(event?.fullCode || '').toUpperCase();
+    return (
+      IfoodImportService.IFOOD_IMPORT_EVENT_CODES.has(code) ||
+      IfoodImportService.IFOOD_IMPORT_EVENT_CODES.has(fullCode)
+    );
   }
 }

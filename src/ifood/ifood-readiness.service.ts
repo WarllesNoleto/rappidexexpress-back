@@ -5,6 +5,17 @@ import { IfoodPollingService } from './ifood-polling.service';
 
 @Injectable()
 export class IfoodReadinessService {
+  private static readonly ELIGIBLE_IMPORT_CODES = new Set([
+    'CFM',
+    'CONFIRMED',
+    'PLC',
+    'PLACED',
+    'DSP',
+    'DISPATCHED',
+    'RTP',
+    'READY_TO_PICKUP',
+  ]);
+
   constructor(
     private readonly ifoodOrdersService: IfoodOrdersService,
     private readonly ifoodPollingService: IfoodPollingService,
@@ -59,15 +70,14 @@ export class IfoodReadinessService {
       (event) => event?.code === 'CON' || event?.fullCode === 'CONCLUDED',
     );
 
-    const hasEligibleImportEvent = filteredEvents.some(
-      (event) =>
-        ['CONFIRMED', 'ORDER_CONFIRMED', 'PREPARATION_STARTED', 'SEPARATION_STARTED', 'DSP', 'DISPATCHED'].includes(
-          String(event?.code || '').toUpperCase(),
-        ) ||
-        ['CONFIRMED', 'ORDER_CONFIRMED', 'PREPARATION_STARTED', 'SEPARATION_STARTED', 'DISPATCHED'].includes(
-          String(event?.fullCode || '').toUpperCase(),
-        ),
-    );
+    const hasEligibleImportEvent = filteredEvents.some((event) => {
+      const code = String(event?.code || '').toUpperCase();
+      const fullCode = String(event?.fullCode || '').toUpperCase();
+      return (
+        IfoodReadinessService.ELIGIBLE_IMPORT_CODES.has(code) ||
+        IfoodReadinessService.ELIGIBLE_IMPORT_CODES.has(fullCode)
+      );
+    });
 
     const latestEvent =
       filteredEvents.length > 0
@@ -102,7 +112,7 @@ export class IfoodReadinessService {
         : hasConcludedEvent
           ? 'Pedido não pode virar entrega no Rappidex porque já foi finalizado no iFood.'
           : !hasEligibleImportEvent
-            ? 'Pedido ainda não possui evento elegível para importação. Aguarde CONFIRMED/ORDER_CONFIRMED/PREPARATION_STARTED.'
+            ? 'Pedido ainda não possui evento elegível para importação. Aguarde CFM/CONFIRMED/PLC/PLACED/DSP/DISPATCHED/RTP/READY_TO_PICKUP.'
             : canCreateRappidexDelivery
               ? 'Pedido apto para virar entrega no Rappidex.'
               : 'Pedido não está apto para virar entrega no Rappidex.',

@@ -34,12 +34,16 @@ export class IfoodEventService {
     const events = await this.ifoodEventRepository.find({
       where: {
         $or: [
+          { code: 'CFM' },
           { code: 'CONFIRMED' },
-          { fullCode: 'ORDER_CONFIRMED' },
-          { fullCode: 'PREPARATION_STARTED' },
-          { fullCode: 'SEPARATION_STARTED' },
+          { code: 'PLC' },
+          { code: 'PLACED' },
           { code: 'DSP' },
+          { code: 'RTP' },
+          { fullCode: 'CONFIRMED' },
+          { fullCode: 'PLACED' },
           { fullCode: 'DISPATCHED' },
+          { fullCode: 'READY_TO_PICKUP' },
         ],
       } as any,
       order: { processedAt: 'DESC' },
