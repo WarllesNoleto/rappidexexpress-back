@@ -93,4 +93,8 @@ export class CreateDeliveryDto {
   @IsString()
   @IsOptional()
   ifoodMerchantName?: string;
+
+  @IsString()
+  @IsOptional()
+  ifoodMerchantLocation?: string;
 }

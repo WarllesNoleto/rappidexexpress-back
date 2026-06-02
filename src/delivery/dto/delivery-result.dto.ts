@@ -146,6 +146,8 @@ export class DeliveryResult {
   ifoodMerchantId?: string;
   @Expose()
   ifoodMerchantName?: string;
+  @Expose()
+  ifoodMerchantLocation?: string;
 
   public static fromEntity(delivery: DeliveryEntity) {
     return plainToClass<DeliveryResult, DeliveryResult>(
@@ -157,6 +159,7 @@ export class DeliveryResult {
         ifoodDisplayId: (delivery as any).ifoodDisplayId ?? null,
         ifoodMerchantId: (delivery as any).ifoodMerchantId ?? null,
         ifoodMerchantName: (delivery as any).ifoodMerchantName ?? null,
+        ifoodMerchantLocation: (delivery as any).ifoodMerchantLocation ?? null,
         establishmentId: delivery.establishment
           ? delivery.establishment.id
           : null,

@@ -325,6 +325,7 @@ export class UserService {
         name: String(merchant?.name || '').trim(),
         enabled: merchant?.enabled !== false,
         pickupAddress: String(merchant?.pickupAddress || '').trim() || undefined,
+        location: String(merchant?.location || '').trim() || undefined,
       }))
       .filter((merchant) => merchant.merchantId);
   }

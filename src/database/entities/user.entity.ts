@@ -7,6 +7,7 @@ export type IfoodMerchantConfig = {
   name: string;
   enabled: boolean;
   pickupAddress?: string;
+  location?: string;
 };
 
 @Entity()

@@ -128,6 +128,9 @@ export class DeliveryEntity {
   ifoodMerchantName?: string;
 
   @Column({ nullable: true })
+  ifoodMerchantLocation?: string;
+
+  @Column({ nullable: true })
   ifoodImportedAt?: Date;
   @Column({ nullable: true })
   ifoodLastEventCode?: string;

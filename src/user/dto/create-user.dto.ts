@@ -96,4 +96,7 @@ class IfoodMerchantDto {
   @IsOptional()
   @IsString()
   pickupAddress?: string;
+  @IsOptional()
+  @IsString()
+  location?: string;
 }
