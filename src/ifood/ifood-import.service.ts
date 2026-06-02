@@ -128,18 +128,11 @@ export class IfoodImportService {
             orderId,
             realMerchantId || merchantId,
           );
-        const merchantCardInfo =
-          await this.ifoodOrdersService.resolveMerchantCardInfo(
-            targetShopkeeperId,
-            realMerchantId,
-            order?.merchant?.name,
-          );
 
         deliveryDto.ifoodOrderId = orderId;
         deliveryDto.ifoodDisplayId = order?.displayId ?? orderId;
         deliveryDto.ifoodMerchantId = realMerchantId;
-        deliveryDto.ifoodMerchantName = merchantCardInfo.name;
-        deliveryDto.ifoodMerchantLocation = merchantCardInfo.location;
+        deliveryDto.ifoodMerchantName = order?.merchant?.name ?? '';
 
         const createdDelivery = await this.deliveryService.createDelivery(
           deliveryDto,
@@ -162,8 +155,7 @@ export class IfoodImportService {
           ifoodOrderId: orderId,
           ifoodDisplayId: order?.displayId ?? orderId,
           merchantId: realMerchantId,
-          merchantName: merchantCardInfo.name,
-          merchantLocation: merchantCardInfo.location,
+          merchantName: order?.merchant?.name ?? '',
           deliveryId: createdDelivery.id,
           shopkeeperId: targetShopkeeperId,
         });

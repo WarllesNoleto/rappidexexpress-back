@@ -172,20 +172,11 @@ export class IfoodAdminController {
       );
     }
 
-    const deliveryDto =
-      await this.ifoodOrdersService.buildCreateDeliveryDto(orderId);
-    const merchantCardInfo =
-      await this.ifoodOrdersService.resolveMerchantCardInfo(
-        targetShopkeeperId,
-        order?.merchant?.id,
-        order?.merchant?.name,
-      );
-    deliveryDto.ifoodMerchantId = order?.merchant?.id ?? '';
-    deliveryDto.ifoodMerchantName = merchantCardInfo.name;
-    deliveryDto.ifoodMerchantLocation = merchantCardInfo.location;
+      const deliveryDto =
+        await this.ifoodOrdersService.buildCreateDeliveryDto(orderId);
 
-    const createdDelivery = await this.deliveryService.createDelivery(
-      deliveryDto,
+      const createdDelivery = await this.deliveryService.createDelivery(
+        deliveryDto,
       {
         id: targetShopkeeperId,
         phone: '',
@@ -201,8 +192,6 @@ export class IfoodAdminController {
       ifoodOrderId: orderId,
       ifoodDisplayId: order?.displayId ?? orderId,
       merchantId: order?.merchant?.id ?? '',
-      merchantName: merchantCardInfo.name,
-      merchantLocation: merchantCardInfo.location,
       deliveryId: createdDelivery.id,
       shopkeeperId: targetShopkeeperId,
     });

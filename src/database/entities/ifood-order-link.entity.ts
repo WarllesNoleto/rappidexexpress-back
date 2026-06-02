@@ -23,9 +23,6 @@ export class IfoodOrderLinkEntity {
   @Column({ nullable: true })
   merchantName?: string;
 
-  @Column({ nullable: true })
-  merchantLocation?: string;
-
   @Column()
   deliveryId: string;
 

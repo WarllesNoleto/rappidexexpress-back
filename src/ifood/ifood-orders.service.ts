@@ -673,35 +673,6 @@ export class IfoodOrdersService {
     return this.buildGoogleMapsLinkByAddress(deliveryAddress);
   }
 
-  async resolveMerchantCardInfo(
-    shopkeeperId: string,
-    merchantId?: string | null,
-    fallbackName?: string | null,
-  ): Promise<{ name: string; location?: string }> {
-    const normalizedMerchantId = String(merchantId || '').trim();
-    const fallback = { name: String(fallbackName || '').trim() };
-
-    if (!shopkeeperId || !normalizedMerchantId) {
-      return fallback;
-    }
-
-    const shopkeeper = await this.userRepository.findOne({
-      where: { id: shopkeeperId } as any,
-    });
-
-    const merchant = Array.isArray(shopkeeper?.ifoodMerchants)
-      ? shopkeeper.ifoodMerchants.find(
-          (item) =>
-            String(item?.merchantId || '').trim() === normalizedMerchantId,
-        )
-      : null;
-
-    return {
-      name: String(merchant?.name || fallbackName || '').trim(),
-      location: String(merchant?.location || '').trim() || undefined,
-    };
-  }
-
   async resolveTargetShopkeeperId(
     merchantId?: string | null,
   ): Promise<string | null> {

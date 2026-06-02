@@ -53,7 +53,6 @@ export class UserResult {
     name: string;
     enabled: boolean;
     pickupAddress?: string;
-    location?: string;
   }>;
 
   @Expose()

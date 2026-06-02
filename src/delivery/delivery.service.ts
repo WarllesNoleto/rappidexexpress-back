@@ -646,10 +646,6 @@ export class DeliveryService implements OnModuleInit {
         ifoodDisplayId: ifoodLink?.ifoodDisplayId ?? null,
         ifoodMerchantId: ifoodLink?.merchantId ?? null,
         ifoodMerchantName: ifoodLink?.merchantName ?? null,
-        ifoodMerchantLocation:
-          ifoodLink?.merchantLocation ??
-          (delivery as any).ifoodMerchantLocation ??
-          null,
       };
     });
 
@@ -1123,7 +1119,6 @@ export class DeliveryService implements OnModuleInit {
       ifoodDisplayId,
       ifoodMerchantId,
       ifoodMerchantName,
-      ifoodMerchantLocation,
     } = deliveryData;
 
     let deliveryStatus = status;
@@ -1205,7 +1200,6 @@ export class DeliveryService implements OnModuleInit {
         ifoodDisplayId,
         ifoodMerchantId,
         ifoodMerchantName,
-        ifoodMerchantLocation,
         ifoodImportedAt: ifoodOrderId ? addHours(new Date(), -3) : undefined,
         isActive: true,
         createdBy: user.id,

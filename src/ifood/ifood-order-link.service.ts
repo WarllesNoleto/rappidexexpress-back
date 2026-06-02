@@ -69,7 +69,6 @@ export class IfoodOrderLinkService implements OnModuleInit {
     ifoodDisplayId: string;
     merchantId: string;
     merchantName?: string;
-    merchantLocation?: string;
     deliveryId: string;
     shopkeeperId: string;
   }) {
