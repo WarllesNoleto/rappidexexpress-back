@@ -686,14 +686,22 @@ export class DeliveryService implements OnModuleInit {
     );
     const deliveriesWithSource = deliveries.map((delivery) => {
       const ifoodLink = ifoodLinkByDeliveryId.get(delivery.id);
+      const ifoodOrderId =
+        delivery.ifoodOrderId || ifoodLink?.ifoodOrderId || null;
+      const ifoodDisplayId =
+        delivery.ifoodDisplayId || ifoodLink?.ifoodDisplayId || null;
+      const ifoodMerchantId =
+        delivery.ifoodMerchantId || ifoodLink?.merchantId || null;
+      const ifoodMerchantName =
+        delivery.ifoodMerchantName || ifoodLink?.merchantName || null;
 
       return {
         ...delivery,
-        isIfoodOrder: Boolean(ifoodLink),
-        ifoodOrderId: ifoodLink?.ifoodOrderId ?? null,
-        ifoodDisplayId: ifoodLink?.ifoodDisplayId ?? null,
-        ifoodMerchantId: ifoodLink?.merchantId ?? null,
-        ifoodMerchantName: ifoodLink?.merchantName ?? null,
+        isIfoodOrder: Boolean(ifoodOrderId || ifoodMerchantId || ifoodLink),
+        ifoodOrderId,
+        ifoodDisplayId,
+        ifoodMerchantId,
+        ifoodMerchantName,
       };
     });
 
