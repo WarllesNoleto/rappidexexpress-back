@@ -73,7 +73,7 @@ export class DeliveryService implements OnModuleInit {
     previousDelivery: DeliveryEntity,
     nextDelivery: DeliveryEntity,
     orderId: string,
-    merchantId: string,
+    merchantId?: string,
   ): Promise<
     Partial<
       Record<
@@ -125,6 +125,50 @@ export class DeliveryService implements OnModuleInit {
     return flags;
   }
 
+  private async getIfoodSyncIdentifiers(delivery: DeliveryEntity) {
+    const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
+      delivery.id,
+    );
+
+    const orderId = String(
+      delivery.ifoodOrderId || ifoodLink?.ifoodOrderId || '',
+    ).trim();
+    const merchantId = String(
+      delivery.ifoodMerchantId || ifoodLink?.merchantId || '',
+    ).trim();
+
+    const isIfoodOrder = Boolean(
+      orderId || merchantId || ifoodLink?.ifoodOrderId || ifoodLink?.merchantId,
+    );
+
+    if (!isIfoodOrder) {
+      return null;
+    }
+
+    this.logger.log(
+      `Pedido iFood identificado. DeliveryId: ${delivery.id}. OrderId: ${orderId || 'não informado'}. MerchantId: ${merchantId || 'não informado'}. Origem: ${delivery.ifoodOrderId || delivery.ifoodMerchantId ? 'delivery' : 'ifoodOrderLink'}.`,
+    );
+
+    if (!orderId) {
+      this.logger.warn(
+        `Delivery ${delivery.id} é iFood, mas não possui ifoodOrderId válido para sincronização.`,
+      );
+      return null;
+    }
+
+    if (!merchantId) {
+      this.logger.warn(
+        `Delivery ${delivery.id} é iFood e possui ifoodOrderId=${orderId}, mas sem ifoodMerchantId; tentando sincronizar com credenciais padrão.`,
+      );
+    }
+
+    return {
+      orderId,
+      merchantId: merchantId || undefined,
+      ifoodLink,
+    };
+  }
+
   private async syncIfoodIfNeeded(
     previousDelivery: DeliveryEntity,
     nextDelivery: DeliveryEntity,
@@ -160,27 +204,14 @@ export class DeliveryService implements OnModuleInit {
       return {};
     }
 
-    const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
-      previousDelivery.id,
-    );
+    const ifoodIdentifiers =
+      await this.getIfoodSyncIdentifiers(previousDelivery);
 
-    if (!ifoodLink) {
+    if (!ifoodIdentifiers) {
       return {};
     }
 
-    this.logger.log(
-      `Pedido iFood identificado para sincronização. DeliveryId: ${previousDelivery.id}.`,
-    );
-
-    const orderId = String(ifoodLink.ifoodOrderId || '').trim();
-    const merchantId = String(ifoodLink.merchantId || '').trim();
-
-    if (!orderId || !merchantId) {
-      this.logger.warn(
-        `Delivery ${previousDelivery.id} é iFood, mas sem orderId/merchantId válidos. Sincronização ignorada.`,
-      );
-      return {};
-    }
+    const { orderId, merchantId } = ifoodIdentifiers;
 
     try {
       if (nextStatus === StatusDelivery.ONCOURSE) {
@@ -215,6 +246,10 @@ export class DeliveryService implements OnModuleInit {
       }
 
       if (nextStatus === StatusDelivery.COLLECTED) {
+        this.logger.log(
+          `Coleta confirmada no Rappidex. DeliveryId: ${previousDelivery.id}. OrderId: ${orderId}.`,
+        );
+
         const flags = await this.ensureIfoodOnCourseSynced(
           previousDelivery,
           nextDelivery,
@@ -223,13 +258,26 @@ export class DeliveryService implements OnModuleInit {
         );
 
         if (!previousDelivery.ifoodDispatchSynced) {
-          await this.ifoodOrdersService.dispatchLogisticsOrder(
-            orderId,
-            merchantId,
+          this.logger.log(
+            `Enviando dispatch para iFood. DeliveryId: ${previousDelivery.id}. OrderId: ${orderId}. MerchantId: ${merchantId || 'não informado'}.`,
           );
+
+          try {
+            await this.ifoodOrdersService.dispatchLogisticsOrder(
+              orderId,
+              merchantId,
+            );
+          } catch (error: any) {
+            this.logger.error(
+              `Falha ao enviar dispatch para iFood. DeliveryId: ${previousDelivery.id}. OrderId: ${orderId}. MerchantId: ${merchantId || 'não informado'}. status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
+              error?.stack || error,
+            );
+            throw error;
+          }
+
           flags.ifoodDispatchSynced = true;
           this.logger.log(
-            `dispatch enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+            `Pedido enviado para em rota no iFood. DeliveryId: ${previousDelivery.id}. OrderId: ${orderId}. MerchantId: ${merchantId || 'não informado'}.`,
           );
         }
 
