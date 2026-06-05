@@ -94,6 +94,20 @@ export class IfoodOrdersService {
         orderId,
       });
 
+      if (this.isOrderInTerminalState(status, data)) {
+        this.logger.warn(
+          `Pedido ${orderId} já está em estado avançado/terminal no iFood; considerando dispatch do pedido como sincronizado.`,
+        );
+
+        return {
+          success: true,
+          accepted: true,
+          orderId,
+          message:
+            'Pedido já estava despachado/finalizado no iFood. Dispatch ignorado.',
+        };
+      }
+
       throw new InternalServerErrorException(
         'Não foi possível enviar o dispatch do pedido ao iFood.',
       );
@@ -788,6 +802,19 @@ export class IfoodOrdersService {
         data,
         orderId,
       });
+
+      if (this.isOrderInTerminalState(status, data)) {
+        this.logger.warn(
+          `Pedido ${orderId} já está em estado avançado/terminal no iFood; considerando ${actionLabel} como sincronizada.`,
+        );
+
+        return {
+          success: true,
+          accepted: true,
+          orderId,
+          message: `${actionLabel} já havia sido aplicada ou não é mais necessária no iFood.`,
+        };
+      }
 
       throw new InternalServerErrorException(
         `Não foi possível enviar ${actionLabel} ao iFood.`,
