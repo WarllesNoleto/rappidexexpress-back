@@ -147,7 +147,7 @@ describe('DeliveryService', () => {
     expect(ifoodOrdersService.notifyGoingToOrigin).not.toHaveBeenCalled();
   });
 
-  it('deve garantir chegada na origem e despachar pedido no status COLLECTED', async () => {
+  it('deve executar apenas dispatch no status COLLECTED sem chamar arrivedAtOrigin', async () => {
     ifoodOrderLinkService.findByDeliveryId.mockResolvedValue({
       ifoodOrderId: 'ifood-2',
       merchantId: 'merchant-2',
@@ -164,18 +164,12 @@ describe('DeliveryService', () => {
       { status: StatusDelivery.COLLECTED },
     );
 
-    expect(ifoodOrdersService.notifyArrivedAtOrigin).toHaveBeenCalledWith(
-      'ifood-2',
-      'merchant-2',
-    );
+    expect(ifoodOrdersService.notifyArrivedAtOrigin).not.toHaveBeenCalled();
     expect(ifoodOrdersService.dispatchLogisticsOrder).toHaveBeenCalledWith(
       'ifood-2',
       'merchant-2',
     );
-    expect(ifoodOrdersService.dispatchOrder).toHaveBeenCalledWith(
-      'ifood-2',
-      'merchant-2',
-    );
+    expect(ifoodOrdersService.dispatchOrder).not.toHaveBeenCalled();
   });
 
   it('deve enviar dispatch no status COLLECTED usando ifoodOrderId salvo na entrega mesmo sem ifoodOrderLink', async () => {
@@ -193,15 +187,7 @@ describe('DeliveryService', () => {
       { status: StatusDelivery.COLLECTED },
     );
 
-    expect(ifoodOrdersService.notifyArrivedAtOrigin).toHaveBeenCalledWith(
-      'ifood-fields-1',
-      'merchant-fields-1',
-    );
     expect(ifoodOrdersService.dispatchLogisticsOrder).toHaveBeenCalledWith(
-      'ifood-fields-1',
-      'merchant-fields-1',
-    );
-    expect(ifoodOrdersService.dispatchOrder).toHaveBeenCalledWith(
       'ifood-fields-1',
       'merchant-fields-1',
     );

@@ -125,41 +125,6 @@ export class DeliveryService implements OnModuleInit {
     return flags;
   }
 
-  private async ensureIfoodArrivedAtOriginSynced(
-    previousDelivery: DeliveryEntity,
-    nextDelivery: DeliveryEntity,
-    orderId: string,
-    merchantId?: string,
-  ): Promise<
-    Partial<
-      Record<
-        | 'ifoodAssignDriverSynced'
-        | 'ifoodGoingToOriginSynced'
-        | 'ifoodArrivedAtOriginSynced'
-        | 'ifoodDispatchSynced',
-        boolean
-      >
-    >
-  > {
-    const flags = await this.ensureIfoodOnCourseSynced(
-      previousDelivery,
-      nextDelivery,
-      orderId,
-      merchantId,
-    );
-
-    if (!previousDelivery.ifoodArrivedAtOriginSynced) {
-      await this.ifoodOrdersService.notifyArrivedAtOrigin(orderId, merchantId);
-      flags.ifoodArrivedAtOriginSynced = true;
-
-      this.logger.log(
-        `arrivedAtOrigin enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
-      );
-    }
-
-    return flags;
-  }
-
   private async getIfoodSyncIdentifiers(delivery: DeliveryEntity) {
     const ifoodLink = await this.ifoodOrderLinkService.findByDeliveryId(
       delivery.id,
@@ -259,12 +224,25 @@ export class DeliveryService implements OnModuleInit {
       }
 
       if (nextStatus === StatusDelivery.ARRIVED_AT_STORE) {
-        return await this.ensureIfoodArrivedAtOriginSynced(
+        const flags = await this.ensureIfoodOnCourseSynced(
           previousDelivery,
           nextDelivery,
           orderId,
           merchantId,
         );
+
+        if (!previousDelivery.ifoodArrivedAtOriginSynced) {
+          await this.ifoodOrdersService.notifyArrivedAtOrigin(
+            orderId,
+            merchantId,
+          );
+          flags.ifoodArrivedAtOriginSynced = true;
+          this.logger.log(
+            `arrivedAtOrigin enviado para iFood. OrderId: ${orderId}. MerchantId: ${merchantId}.`,
+          );
+        }
+
+        return flags;
       }
 
       if (nextStatus === StatusDelivery.COLLECTED) {
@@ -272,7 +250,7 @@ export class DeliveryService implements OnModuleInit {
           `Coleta confirmada no Rappidex. DeliveryId: ${previousDelivery.id}. OrderId: ${orderId}.`,
         );
 
-        const flags = await this.ensureIfoodArrivedAtOriginSynced(
+        const flags = await this.ensureIfoodOnCourseSynced(
           previousDelivery,
           nextDelivery,
           orderId,
@@ -289,8 +267,6 @@ export class DeliveryService implements OnModuleInit {
               orderId,
               merchantId,
             );
-
-            await this.ifoodOrdersService.dispatchOrder(orderId, merchantId);
           } catch (error: any) {
             this.logger.error(
               `Falha ao enviar dispatch para iFood. DeliveryId: ${previousDelivery.id}. OrderId: ${orderId}. MerchantId: ${merchantId || 'não informado'}. status=${error?.response?.status || error?.status || 'N/A'} message=${error?.response?.data?.message || error?.message || error}`,
